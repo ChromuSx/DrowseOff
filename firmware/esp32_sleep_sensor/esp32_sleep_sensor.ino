@@ -35,57 +35,54 @@ const int IR_LED_PIN = 23;
 
 IRsend irsend(IR_LED_PIN);
 
-const bool INVIA_DATI_SERVER = true;
+const bool SEND_DATA_TO_SERVER = true;
 const char WIFI_SSID[] = WIFI_SSID_VALUE;
 const char WIFI_PASSWORD[] = WIFI_PASSWORD_VALUE;
 const char DEVICE_ID[] = DEVICE_ID_VALUE;
 const char SERVER_BASE_URL[] = SERVER_BASE_URL_VALUE;
-const unsigned long INTERVALLO_INVIO_SERVER_MS = 10000;
-const unsigned long INTERVALLO_CONTROLLO_COMANDI_MS = 5000;
-const unsigned long INTERVALLO_SETTINGS_SERVER_MS = 60000;
-const unsigned long INTERVALLO_RECONNECT_WIFI_MS = 30000;
+const unsigned long SERVER_UPLOAD_INTERVAL_MS = 10000;
+const unsigned long COMMAND_CHECK_INTERVAL_MS = 5000;
+const unsigned long SETTINGS_SYNC_INTERVAL_MS = 60000;
+const unsigned long WIFI_RECONNECT_INTERVAL_MS = 30000;
 
-int distanzaMinCm = 40;
-int distanzaMaxCm = 120;
-int punteggioSpegnimento = 600;
-int cambioDistanzaTranquilloCm = 25;
-int cambioDistanzaForteCm = 55;
-int maxLettureFuoriLetto = 8;
-int irRipetizioni = 2;
-bool autoSpegnimentoAttivo = true;
+int bedMinDistanceCm = 40;
+int bedMaxDistanceCm = 120;
+int sleepThreshold = 600;
+int quietDistanceChangeCm = 25;
+int strongDistanceChangeCm = 55;
+int maxOutOfBedReadings = 8;
+int irRepeats = 2;
+bool autoPowerEnabled = true;
 
-const int NUM_LETTURE_DISTANZA = 5;
+const int DISTANCE_SAMPLE_COUNT = 5;
 
 const int RADAR_MAX_MOVING_GATE = 2;
 const int RADAR_MAX_STATIONARY_GATE = 2;
 const int RADAR_INACTIVITY_TIMER_S = 3;
-const bool CONFIGURA_RADAR_ALL_AVVIO = true;
+const bool CONFIGURE_RADAR_ON_BOOT = true;
 
-int punteggioSonno = 0;
-bool tvGiaSpenta = false;
+int sleepScore = 0;
+bool tvAlreadyOff = false;
 
-int ultimaDistanzaValida = -1;
-int lettureFuoriLettoConsecutive = 0;
-unsigned long ultimoControllo = 0;
-unsigned long ultimoInvioServer = 0;
-unsigned long ultimoControlloComandiServer = 0;
-unsigned long ultimoControlloSettingsServer = 0;
-unsigned long ultimoTentativoWifi = 0;
-bool otaConfigurata = false;
+int lastValidDistance = -1;
+int consecutiveOutOfBedReadings = 0;
+unsigned long lastLoopCheck = 0;
+unsigned long lastServerUpload = 0;
+unsigned long lastCommandCheck = 0;
+unsigned long lastSettingsSync = 0;
+unsigned long lastWifiRetry = 0;
+bool otaConfigured = false;
 
-int storicoDistanze[NUM_LETTURE_DISTANZA];
-int storicoDistanzeCount = 0;
-int storicoDistanzeIndex = 0;
+int distanceHistory[DISTANCE_SAMPLE_COUNT];
+int distanceHistoryCount = 0;
+int distanceHistoryIndex = 0;
 
-bool wifiConfigurato() {
-  return strcmp(WIFI_SSID, "YOUR_WIFI_NAME") != 0 &&
-         strcmp(WIFI_PASSWORD, "YOUR_WIFI_PASSWORD") != 0 &&
-         strlen(WIFI_SSID) > 0;
+bool wifiConfigured() {
+  return strcmp(WIFI_SSID, "YOUR_WIFI_NAME") != 0 && strcmp(WIFI_PASSWORD, "YOUR_WIFI_PASSWORD") != 0 && strlen(WIFI_SSID) > 0;
 }
 
 bool serverConfigured() {
-  return strcmp(SERVER_BASE_URL, "http://YOUR_SERVER_IP:8010") != 0 &&
-         strlen(SERVER_BASE_URL) > 0;
+  return strcmp(SERVER_BASE_URL, "http://YOUR_SERVER_IP:8010") != 0 && strlen(SERVER_BASE_URL) > 0;
 }
 
 String serverUrl(const char* path) {
@@ -98,8 +95,8 @@ String serverUrl(const char* path) {
   return base + path;
 }
 
-void configuraOTA() {
-  if (otaConfigurata || WiFi.status() != WL_CONNECTED) {
+void setupOTA() {
+  if (otaConfigured || WiFi.status() != WL_CONNECTED) {
     return;
   }
 
@@ -119,21 +116,21 @@ void configuraOTA() {
   });
 
   ArduinoOTA.begin();
-  otaConfigurata = true;
+  otaConfigured = true;
   Serial.println("OTA ready: you can update over Wi-Fi from the Arduino IDE");
 }
 
-void gestisciOTA() {
+void handleOTA() {
   if (WiFi.status() != WL_CONNECTED) {
     return;
   }
 
-  configuraOTA();
+  setupOTA();
   ArduinoOTA.handle();
 }
 
-void connettiWifi() {
-  if (!INVIA_DATI_SERVER || !wifiConfigurato()) {
+void connectWifi() {
+  if (!SEND_DATA_TO_SERVER || !wifiConfigured()) {
     Serial.println("Wi-Fi logging is not configured");
     return;
   }
@@ -144,9 +141,9 @@ void connettiWifi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-  unsigned long inizio = millis();
+  unsigned long startMs = millis();
 
-  while (WiFi.status() != WL_CONNECTED && millis() - inizio < 10000) {
+  while (WiFi.status() != WL_CONNECTED && millis() - startMs < 10000) {
     delay(500);
     Serial.print(".");
   }
@@ -156,14 +153,14 @@ void connettiWifi() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print("Wi-Fi connected | ESP32 IP: ");
     Serial.println(WiFi.localIP());
-    configuraOTA();
+    setupOTA();
   } else {
     Serial.println("Wi-Fi not connected: continuing without data upload");
   }
 }
 
-void assicuratiWifi() {
-  if (!INVIA_DATI_SERVER || !wifiConfigurato()) {
+void ensureWifi() {
+  if (!SEND_DATA_TO_SERVER || !wifiConfigured()) {
     return;
   }
 
@@ -171,38 +168,38 @@ void assicuratiWifi() {
     return;
   }
 
-  if (millis() - ultimoTentativoWifi < INTERVALLO_RECONNECT_WIFI_MS) {
+  if (millis() - lastWifiRetry < WIFI_RECONNECT_INTERVAL_MS) {
     return;
   }
 
-  ultimoTentativoWifi = millis();
+  lastWifiRetry = millis();
   Serial.println("Wi-Fi disconnected: retrying");
   WiFi.disconnect();
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
-String boolJson(bool valore) {
-  return valore ? "true" : "false";
+String boolJson(bool value) {
+  return value ? "true" : "false";
 }
 
-String escapeJson(const String& valore) {
-  String risultato = "";
+String escapeJson(const String& value) {
+  String result = "";
 
-  for (int i = 0; i < valore.length(); i++) {
-    char c = valore[i];
+  for (int i = 0; i < value.length(); i++) {
+    char c = value[i];
 
     if (c == '\\' || c == '"') {
-      risultato += '\\';
+      result += '\\';
     }
 
-    risultato += c;
+    result += c;
   }
 
-  return risultato;
+  return result;
 }
 
 bool postJson(const String& url, const String& json) {
-  if (!INVIA_DATI_SERVER || !wifiConfigurato() || !serverConfigured() || WiFi.status() != WL_CONNECTED) {
+  if (!SEND_DATA_TO_SERVER || !wifiConfigured() || !serverConfigured() || WiFi.status() != WL_CONNECTED) {
     return false;
   }
 
@@ -221,7 +218,7 @@ bool postJson(const String& url, const String& json) {
 }
 
 bool getJson(const String& url, String& response) {
-  if (!INVIA_DATI_SERVER || !wifiConfigurato() || !serverConfigured() || WiFi.status() != WL_CONNECTED) {
+  if (!SEND_DATA_TO_SERVER || !wifiConfigured() || !serverConfigured() || WiFi.status() != WL_CONNECTED) {
     return false;
   }
 
@@ -244,67 +241,67 @@ bool getJson(const String& url, String& response) {
   return false;
 }
 
-int estraiCampoIntero(const String& json, const char* nomeCampo) {
-  String chiave = "\"" + String(nomeCampo) + "\"";
-  int posizioneChiave = json.indexOf(chiave);
+int extractIntField(const String& json, const char* fieldName) {
+  String key = "\"" + String(fieldName) + "\"";
+  int keyPosition = json.indexOf(key);
 
-  if (posizioneChiave < 0) {
+  if (keyPosition < 0) {
     return -1;
   }
 
-  int posizioneDuePunti = json.indexOf(':', posizioneChiave);
+  int colonPosition = json.indexOf(':', keyPosition);
 
-  if (posizioneDuePunti < 0) {
+  if (colonPosition < 0) {
     return -1;
   }
 
-  int inizioNumero = posizioneDuePunti + 1;
+  int numberStart = colonPosition + 1;
 
-  while (inizioNumero < json.length() && json[inizioNumero] == ' ') {
-    inizioNumero++;
+  while (numberStart < json.length() && json[numberStart] == ' ') {
+    numberStart++;
   }
 
-  int fineNumero = inizioNumero;
+  int numberEnd = numberStart;
 
-  while (fineNumero < json.length() && (isDigit(json[fineNumero]) || json[fineNumero] == '-')) {
-    fineNumero++;
+  while (numberEnd < json.length() && (isDigit(json[numberEnd]) || json[numberEnd] == '-')) {
+    numberEnd++;
   }
 
-  if (fineNumero == inizioNumero) {
+  if (numberEnd == numberStart) {
     return -1;
   }
 
-  return json.substring(inizioNumero, fineNumero).toInt();
+  return json.substring(numberStart, numberEnd).toInt();
 }
 
-int limitaIntero(int valore, int minimo, int massimo) {
-  if (valore < minimo) {
-    return minimo;
+int clampInt(int value, int minimum, int maximum) {
+  if (value < minimum) {
+    return minimum;
   }
 
-  if (valore > massimo) {
-    return massimo;
+  if (value > maximum) {
+    return maximum;
   }
 
-  return valore;
+  return value;
 }
 
-void applicaCampoIntero(const String& json, const char* nomeCampo, int& destinazione, int minimo, int massimo) {
-  int valore = estraiCampoIntero(json, nomeCampo);
+void applyIntField(const String& json, const char* fieldName, int& destination, int minimum, int maximum) {
+  int value = extractIntField(json, fieldName);
 
-  if (valore < 0) {
+  if (value < 0) {
     return;
   }
 
-  destinazione = limitaIntero(valore, minimo, massimo);
+  destination = clampInt(value, minimum, maximum);
 }
 
-void caricaImpostazioniServer(bool forza = false) {
-  if (!forza && millis() - ultimoControlloSettingsServer < INTERVALLO_SETTINGS_SERVER_MS) {
+void loadServerSettings(bool force = false) {
+  if (!force && millis() - lastSettingsSync < SETTINGS_SYNC_INTERVAL_MS) {
     return;
   }
 
-  ultimoControlloSettingsServer = millis();
+  lastSettingsSync = millis();
 
   String response;
   String url = serverUrl("/api/settings/device") + "?device_id=" + String(DEVICE_ID);
@@ -313,58 +310,58 @@ void caricaImpostazioniServer(bool forza = false) {
     return;
   }
 
-  applicaCampoIntero(response, "sleep_threshold", punteggioSpegnimento, 30, 3600);
-  applicaCampoIntero(response, "distance_min_cm", distanzaMinCm, 20, 400);
-  applicaCampoIntero(response, "distance_max_cm", distanzaMaxCm, 30, 600);
-  applicaCampoIntero(response, "distance_quiet_cm", cambioDistanzaTranquilloCm, 1, 120);
-  applicaCampoIntero(response, "distance_strong_cm", cambioDistanzaForteCm, 5, 200);
-  applicaCampoIntero(response, "out_of_bed_limit", maxLettureFuoriLetto, 1, 60);
-  applicaCampoIntero(response, "ir_repeats", irRipetizioni, 0, 5);
+  applyIntField(response, "sleep_threshold", sleepThreshold, 30, 3600);
+  applyIntField(response, "distance_min_cm", bedMinDistanceCm, 20, 400);
+  applyIntField(response, "distance_max_cm", bedMaxDistanceCm, 30, 600);
+  applyIntField(response, "distance_quiet_cm", quietDistanceChangeCm, 1, 120);
+  applyIntField(response, "distance_strong_cm", strongDistanceChangeCm, 5, 200);
+  applyIntField(response, "out_of_bed_limit", maxOutOfBedReadings, 1, 60);
+  applyIntField(response, "ir_repeats", irRepeats, 0, 5);
 
-  int autoPower = estraiCampoIntero(response, "auto_power_enabled");
+  int autoPower = extractIntField(response, "auto_power_enabled");
   if (autoPower >= 0) {
-    autoSpegnimentoAttivo = autoPower == 1;
+    autoPowerEnabled = autoPower == 1;
   }
 
-  if (distanzaMinCm >= distanzaMaxCm) {
-    distanzaMaxCm = distanzaMinCm + 10;
+  if (bedMinDistanceCm >= bedMaxDistanceCm) {
+    bedMaxDistanceCm = bedMinDistanceCm + 10;
   }
 
-  if (cambioDistanzaTranquilloCm >= cambioDistanzaForteCm) {
-    cambioDistanzaForteCm = cambioDistanzaTranquilloCm + 5;
+  if (quietDistanceChangeCm >= strongDistanceChangeCm) {
+    strongDistanceChangeCm = quietDistanceChangeCm + 5;
   }
 }
 
-void inviaPowerTv(int numeroInvii = 1) {
-  numeroInvii = limitaIntero(numeroInvii, 1, 5);
+void sendTvPower(int sendCount = 1) {
+  sendCount = clampInt(sendCount, 1, 5);
 
-  for (int i = 0; i < numeroInvii; i++) {
-    irsend.sendSAMSUNG(0xE0E019E6, 32, irRipetizioni);
+  for (int i = 0; i < sendCount; i++) {
+    irsend.sendSAMSUNG(0xE0E019E6, 32, irRepeats);
 
-    if (i < numeroInvii - 1) {
+    if (i < sendCount - 1) {
       delay(250);
     }
   }
 }
 
-void completaComandoServer(int commandId, const char* status, int distanzaFiltrata, const char* note) {
+void completeServerCommand(int commandId, const char* status, int filteredDistance, const char* note) {
   String json = "{";
   json += "\"id\":" + String(commandId);
   json += ",\"status\":\"" + String(status) + "\"";
-  json += ",\"sleep_score\":" + String(punteggioSonno);
-  json += ",\"dist_filtered\":" + String(distanzaFiltrata);
+  json += ",\"sleep_score\":" + String(sleepScore);
+  json += ",\"dist_filtered\":" + String(filteredDistance);
   json += ",\"note\":\"" + String(note) + "\"";
   json += "}";
 
   postJson(serverUrl("/api/commands/complete"), json);
 }
 
-bool controllaComandiServer(int distanzaFiltrata) {
-  if (millis() - ultimoControlloComandiServer < INTERVALLO_CONTROLLO_COMANDI_MS) {
+bool checkServerCommands(int filteredDistance) {
+  if (millis() - lastCommandCheck < COMMAND_CHECK_INTERVAL_MS) {
     return false;
   }
 
-  ultimoControlloComandiServer = millis();
+  lastCommandCheck = millis();
 
   String response;
   String url = serverUrl("/api/commands/next") + "?device_id=" + String(DEVICE_ID);
@@ -373,133 +370,132 @@ bool controllaComandiServer(int distanzaFiltrata) {
     return false;
   }
 
-  int commandId = estraiCampoIntero(response, "id");
+  int commandId = extractIntField(response, "id");
 
   if (commandId <= 0 || response.indexOf("tv_power") < 0) {
     return false;
   }
 
-  int repeatCount = estraiCampoIntero(response, "repeat_count");
+  int repeatCount = extractIntField(response, "repeat_count");
   if (repeatCount <= 0) {
     repeatCount = 1;
   }
 
-  inviaPowerTv(repeatCount);
-  tvGiaSpenta = true;
-  completaComandoServer(commandId, "done", distanzaFiltrata, "TV OFF sent by ESP32");
+  sendTvPower(repeatCount);
+  tvAlreadyOff = true;
+  completeServerCommand(commandId, "done", filteredDistance, "TV OFF sent by ESP32");
 
   return true;
 }
 
-void inviaLetturaServer(
-  bool radarConnesso,
-  bool presenza,
-  bool personaNelLetto,
-  bool movimento,
-  bool fermo,
-  bool distanzaStabile,
-  int energiaMovimento,
-  int energiaFermo,
-  int distanzaScelta,
-  int distanzaFiltrata,
-  int cambioDistanza,
+void sendReadingToServer(
+  bool radarConnected,
+  bool presence,
+  bool personInBed,
+  bool moving,
+  bool still,
+  bool stableDistance,
+  int movingEnergy,
+  int stillEnergy,
+  int selectedDistance,
+  int filteredDistance,
+  int distanceChange,
   bool tvCommandSent,
-  const String& scoreReason
-) {
-  if (millis() - ultimoInvioServer < INTERVALLO_INVIO_SERVER_MS && !tvCommandSent) {
+  const String& scoreReason) {
+  if (millis() - lastServerUpload < SERVER_UPLOAD_INTERVAL_MS && !tvCommandSent) {
     return;
   }
 
-  ultimoInvioServer = millis();
+  lastServerUpload = millis();
 
   String json = "{";
   json += "\"device_id\":\"" + String(DEVICE_ID) + "\"";
-  json += ",\"mode\":\"" + String(autoSpegnimentoAttivo ? "AUTO" : "MONITOR") + "\"";
-  json += ",\"threshold\":" + String(punteggioSpegnimento);
-  json += ",\"radar_ok\":" + boolJson(radarConnesso);
-  json += ",\"presence\":" + boolJson(presenza);
-  json += ",\"in_bed\":" + boolJson(personaNelLetto);
-  json += ",\"moving\":" + boolJson(movimento);
-  json += ",\"still\":" + boolJson(fermo);
-  json += ",\"stable\":" + boolJson(distanzaStabile);
-  json += ",\"energy_moving\":" + String(energiaMovimento);
-  json += ",\"energy_still\":" + String(energiaFermo);
-  json += ",\"dist_raw\":" + String(distanzaScelta);
-  json += ",\"dist_filtered\":" + String(distanzaFiltrata);
-  json += ",\"dist_change\":" + String(cambioDistanza);
-  json += ",\"sleep_score\":" + String(punteggioSonno);
-  json += ",\"out_of_bed_count\":" + String(lettureFuoriLettoConsecutive);
+  json += ",\"mode\":\"" + String(autoPowerEnabled ? "AUTO" : "MONITOR") + "\"";
+  json += ",\"threshold\":" + String(sleepThreshold);
+  json += ",\"radar_ok\":" + boolJson(radarConnected);
+  json += ",\"presence\":" + boolJson(presence);
+  json += ",\"in_bed\":" + boolJson(personInBed);
+  json += ",\"moving\":" + boolJson(moving);
+  json += ",\"still\":" + boolJson(still);
+  json += ",\"stable\":" + boolJson(stableDistance);
+  json += ",\"energy_moving\":" + String(movingEnergy);
+  json += ",\"energy_still\":" + String(stillEnergy);
+  json += ",\"dist_raw\":" + String(selectedDistance);
+  json += ",\"dist_filtered\":" + String(filteredDistance);
+  json += ",\"dist_change\":" + String(distanceChange);
+  json += ",\"sleep_score\":" + String(sleepScore);
+  json += ",\"out_of_bed_count\":" + String(consecutiveOutOfBedReadings);
   json += ",\"tv_command_sent\":" + boolJson(tvCommandSent);
   json += ",\"score_reason\":\"" + escapeJson(scoreReason) + "\"";
   json += "}";
 
-  bool inviato = postJson(serverUrl("/api/readings"), json);
+  bool sent = postJson(serverUrl("/api/readings"), json);
 
   Serial.print(" | Server reading: ");
-  Serial.print(inviato ? "OK" : "NO");
+  Serial.print(sent ? "OK" : "NO");
 }
 
-void inviaEventoServer(const char* eventType, int distanzaFiltrata, const char* note) {
+void sendEventToServer(const char* eventType, int filteredDistance, const char* note) {
   String json = "{";
   json += "\"device_id\":\"" + String(DEVICE_ID) + "\"";
   json += ",\"event_type\":\"" + String(eventType) + "\"";
-  json += ",\"sleep_score\":" + String(punteggioSonno);
-  json += ",\"dist_filtered\":" + String(distanzaFiltrata);
+  json += ",\"sleep_score\":" + String(sleepScore);
+  json += ",\"dist_filtered\":" + String(filteredDistance);
   json += ",\"note\":\"" + String(note) + "\"";
   json += "}";
 
-  bool inviato = postJson(serverUrl("/api/events"), json);
+  bool sent = postJson(serverUrl("/api/events"), json);
 
   Serial.print(" | Server event: ");
-  Serial.print(inviato ? "OK" : "NO");
+  Serial.print(sent ? "OK" : "NO");
 }
 
-void resetFiltroDistanza() {
-  storicoDistanzeCount = 0;
-  storicoDistanzeIndex = 0;
+void resetDistanceFilter() {
+  distanceHistoryCount = 0;
+  distanceHistoryIndex = 0;
 }
 
-void aggiungiDistanzaAlFiltro(int distanza) {
-  storicoDistanze[storicoDistanzeIndex] = distanza;
-  storicoDistanzeIndex = (storicoDistanzeIndex + 1) % NUM_LETTURE_DISTANZA;
+void addDistanceToFilter(int distance) {
+  distanceHistory[distanceHistoryIndex] = distance;
+  distanceHistoryIndex = (distanceHistoryIndex + 1) % DISTANCE_SAMPLE_COUNT;
 
-  if (storicoDistanzeCount < NUM_LETTURE_DISTANZA) {
-    storicoDistanzeCount++;
+  if (distanceHistoryCount < DISTANCE_SAMPLE_COUNT) {
+    distanceHistoryCount++;
   }
 }
 
-int calcolaDistanzaFiltrata() {
-  if (storicoDistanzeCount == 0) {
+int calculateFilteredDistance() {
+  if (distanceHistoryCount == 0) {
     return -1;
   }
 
-  int valori[NUM_LETTURE_DISTANZA];
+  int values[DISTANCE_SAMPLE_COUNT];
 
-  for (int i = 0; i < storicoDistanzeCount; i++) {
-    valori[i] = storicoDistanze[i];
+  for (int i = 0; i < distanceHistoryCount; i++) {
+    values[i] = distanceHistory[i];
   }
 
-  for (int i = 0; i < storicoDistanzeCount - 1; i++) {
-    for (int j = i + 1; j < storicoDistanzeCount; j++) {
-      if (valori[j] < valori[i]) {
-        int temporaneo = valori[i];
-        valori[i] = valori[j];
-        valori[j] = temporaneo;
+  for (int i = 0; i < distanceHistoryCount - 1; i++) {
+    for (int j = i + 1; j < distanceHistoryCount; j++) {
+      if (values[j] < values[i]) {
+        int temporary = values[i];
+        values[i] = values[j];
+        values[j] = temporary;
       }
     }
   }
 
-  int centro = storicoDistanzeCount / 2;
+  int center = distanceHistoryCount / 2;
 
-  if (storicoDistanzeCount % 2 == 1) {
-    return valori[centro];
+  if (distanceHistoryCount % 2 == 1) {
+    return values[center];
   }
 
-  return (valori[centro - 1] + valori[centro]) / 2;
+  return (values[center - 1] + values[center]) / 2;
 }
 
-void configuraRadarSeServe() {
-  if (!CONFIGURA_RADAR_ALL_AVVIO) {
+void configureRadarIfNeeded() {
+  if (!CONFIGURE_RADAR_ON_BOOT) {
     return;
   }
 
@@ -518,12 +514,10 @@ void configuraRadarSeServe() {
   Serial.print(radar.sensor_idle_time);
   Serial.println(" s");
 
-  bool configurazioneGiaCorretta =
-    radar.max_moving_gate == RADAR_MAX_MOVING_GATE &&
-    radar.max_stationary_gate == RADAR_MAX_STATIONARY_GATE &&
-    radar.sensor_idle_time == RADAR_INACTIVITY_TIMER_S;
+  bool configurationAlreadyCorrect =
+    radar.max_moving_gate == RADAR_MAX_MOVING_GATE && radar.max_stationary_gate == RADAR_MAX_STATIONARY_GATE && radar.sensor_idle_time == RADAR_INACTIVITY_TIMER_S;
 
-  if (configurazioneGiaCorretta) {
+  if (configurationAlreadyCorrect) {
     Serial.println("LD2410C configuration is already correct");
     return;
   }
@@ -546,17 +540,17 @@ void configuraRadarSeServe() {
   }
 }
 
-bool distanzaValida(int d) {
-  return d >= distanzaMinCm && d <= distanzaMaxCm;
+bool validDistance(int d) {
+  return d >= bedMinDistanceCm && d <= bedMaxDistanceCm;
 }
 
-int scegliDistanzaMigliore(int distanzaFermo, int distanzaMovimento) {
-  if (distanzaValida(distanzaFermo)) {
-    return distanzaFermo;
+int chooseBestDistance(int stillDistance, int movingDistance) {
+  if (validDistance(stillDistance)) {
+    return stillDistance;
   }
 
-  if (distanzaValida(distanzaMovimento)) {
-    return distanzaMovimento;
+  if (validDistance(movingDistance)) {
+    return movingDistance;
   }
 
   return -1;
@@ -572,19 +566,19 @@ void setup() {
 
   if (radar.begin(Serial2)) {
     Serial.println("LD2410C connected");
-    configuraRadarSeServe();
+    configureRadarIfNeeded();
   } else {
     Serial.println("Error: LD2410C not found");
   }
 
   irsend.begin();
-  connettiWifi();
-  caricaImpostazioniServer(true);
+  connectWifi();
+  loadServerSettings(true);
 
   Serial.print("Automatic TV OFF: ");
-  Serial.println(autoSpegnimentoAttivo ? "ON" : "MONITOR ONLY");
+  Serial.println(autoPowerEnabled ? "ON" : "MONITOR ONLY");
   Serial.print("Sleep threshold: ");
-  Serial.print(punteggioSpegnimento);
+  Serial.print(sleepThreshold);
   Serial.println(" approximate seconds");
 
   Serial.println("System ready");
@@ -592,180 +586,179 @@ void setup() {
 
 void loop() {
   radar.read();
-  assicuratiWifi();
-  gestisciOTA();
+  ensureWifi();
+  handleOTA();
 
-  if (millis() - ultimoControllo < 1000) {
+  if (millis() - lastLoopCheck < 1000) {
     return;
   }
 
-  ultimoControllo = millis();
-  caricaImpostazioniServer();
+  lastLoopCheck = millis();
+  loadServerSettings();
 
-  bool radarConnesso = radar.isConnected();
-  bool presenza = radarConnesso && radar.presenceDetected();
-  bool movimento = radarConnesso && radar.movingTargetDetected();
-  bool fermo = radarConnesso && radar.stationaryTargetDetected();
+  bool radarConnected = radar.isConnected();
+  bool presence = radarConnected && radar.presenceDetected();
+  bool moving = radarConnected && radar.movingTargetDetected();
+  bool still = radarConnected && radar.stationaryTargetDetected();
 
-  int energiaMovimento = radarConnesso ? radar.movingTargetEnergy() : 0;
-  int energiaFermo = radarConnesso ? radar.stationaryTargetEnergy() : 0;
+  int movingEnergy = radarConnected ? radar.movingTargetEnergy() : 0;
+  int stillEnergy = radarConnected ? radar.stationaryTargetEnergy() : 0;
 
-  int distanzaMovimento = radarConnesso ? radar.movingTargetDistance() : 0;
-  int distanzaFermo = radarConnesso ? radar.stationaryTargetDistance() : 0;
+  int movingDistance = radarConnected ? radar.movingTargetDistance() : 0;
+  int stillDistance = radarConnected ? radar.stationaryTargetDistance() : 0;
 
-  int distanzaScelta = scegliDistanzaMigliore(distanzaFermo, distanzaMovimento);
+  int selectedDistance = chooseBestDistance(stillDistance, movingDistance);
 
-  bool personaNelLetto = presenza && distanzaScelta != -1;
-  int distanzaFiltrata = -1;
+  bool personInBed = presence && selectedDistance != -1;
+  int filteredDistance = -1;
 
-  if (personaNelLetto) {
-    aggiungiDistanzaAlFiltro(distanzaScelta);
-    distanzaFiltrata = calcolaDistanzaFiltrata();
+  if (personInBed) {
+    addDistanceToFilter(selectedDistance);
+    filteredDistance = calculateFilteredDistance();
   }
 
-  int distanzaPerLogica = distanzaFiltrata != -1 ? distanzaFiltrata : distanzaScelta;
+  int logicDistance = filteredDistance != -1 ? filteredDistance : selectedDistance;
 
-  int cambioDistanza = 0;
-  bool distanzaStabile = false;
-  bool movimentoForte = false;
+  int distanceChange = 0;
+  bool stableDistance = false;
+  bool strongMovement = false;
   bool tvCommandSentThisLoop = false;
-  bool comandoDashboardThisLoop = false;
-  bool comandoAutomaticoThisLoop = false;
-  String motivoPunteggio = "";
+  bool dashboardCommandThisLoop = false;
+  bool automaticCommandThisLoop = false;
+  String scoreReason = "";
 
-  if (personaNelLetto && ultimaDistanzaValida != -1) {
-    cambioDistanza = abs(distanzaPerLogica - ultimaDistanzaValida);
+  if (personInBed && lastValidDistance != -1) {
+    distanceChange = abs(logicDistance - lastValidDistance);
 
-    distanzaStabile = cambioDistanza <= cambioDistanzaTranquilloCm;
-    movimentoForte = cambioDistanza >= cambioDistanzaForteCm;
+    stableDistance = distanceChange <= quietDistanceChangeCm;
+    strongMovement = distanceChange >= strongDistanceChangeCm;
   }
 
-  if (!personaNelLetto) {
-    lettureFuoriLettoConsecutive++;
+  if (!personInBed) {
+    consecutiveOutOfBedReadings++;
 
-    if (lettureFuoriLettoConsecutive >= maxLettureFuoriLetto) {
-      punteggioSonno = 0;
-      ultimaDistanzaValida = -1;
-      resetFiltroDistanza();
-      tvGiaSpenta = false;
-      motivoPunteggio = "reset: out of bed";
+    if (consecutiveOutOfBedReadings >= maxOutOfBedReadings) {
+      sleepScore = 0;
+      lastValidDistance = -1;
+      resetDistanceFilter();
+      tvAlreadyOff = false;
+      scoreReason = "reset: out of bed";
     } else {
-      punteggioSonno -= 1;
-      motivoPunteggio = "-1 outside bed range";
+      sleepScore -= 1;
+      scoreReason = "-1 outside bed range";
     }
   } else {
-    lettureFuoriLettoConsecutive = 0;
+    consecutiveOutOfBedReadings = 0;
 
-    if (ultimaDistanzaValida == -1) {
-      ultimaDistanzaValida = distanzaPerLogica;
+    if (lastValidDistance == -1) {
+      lastValidDistance = logicDistance;
     }
 
-    if (movimentoForte) {
-      punteggioSonno -= 8;
-      motivoPunteggio = "-8 strong movement";
-    } else if (distanzaStabile && fermo) {
-      punteggioSonno += 1;
-      motivoPunteggio = "+1 stable and still";
-    } else if (distanzaStabile) {
-      punteggioSonno += 1;
-      motivoPunteggio = "+1 stable distance";
+    if (strongMovement) {
+      sleepScore -= 8;
+      scoreReason = "-8 strong movement";
+    } else if (stableDistance && still) {
+      sleepScore += 1;
+      scoreReason = "+1 stable and still";
+    } else if (stableDistance) {
+      sleepScore += 1;
+      scoreReason = "+1 stable distance";
     } else {
-      punteggioSonno -= 1;
-      motivoPunteggio = "-1 unstable distance";
+      sleepScore -= 1;
+      scoreReason = "-1 unstable distance";
     }
 
-    ultimaDistanzaValida = distanzaPerLogica;
+    lastValidDistance = logicDistance;
   }
 
-  if (punteggioSonno < 0) {
-    punteggioSonno = 0;
+  if (sleepScore < 0) {
+    sleepScore = 0;
   }
 
-  if (punteggioSonno > punteggioSpegnimento) {
-    punteggioSonno = punteggioSpegnimento;
+  if (sleepScore > sleepThreshold) {
+    sleepScore = sleepThreshold;
   }
 
-  if (controllaComandiServer(distanzaFiltrata)) {
+  if (checkServerCommands(filteredDistance)) {
     tvCommandSentThisLoop = true;
-    comandoDashboardThisLoop = true;
+    dashboardCommandThisLoop = true;
   }
 
   Serial.print("Radar: ");
-  Serial.print(radarConnesso ? "OK" : "NO");
+  Serial.print(radarConnected ? "OK" : "NO");
 
   Serial.print(" | Presence: ");
-  Serial.print(presenza ? "YES" : "NO");
+  Serial.print(presence ? "YES" : "NO");
 
   Serial.print(" | In bed: ");
-  Serial.print(personaNelLetto ? "YES" : "NO");
+  Serial.print(personInBed ? "YES" : "NO");
 
   Serial.print(" | Out of bed: ");
-  Serial.print(lettureFuoriLettoConsecutive);
+  Serial.print(consecutiveOutOfBedReadings);
   Serial.print("/");
-  Serial.print(maxLettureFuoriLetto);
+  Serial.print(maxOutOfBedReadings);
 
   Serial.print(" | Mov: ");
-  Serial.print(movimento ? "YES" : "NO");
+  Serial.print(moving ? "YES" : "NO");
 
   Serial.print(" | E mov: ");
-  Serial.print(energiaMovimento);
+  Serial.print(movingEnergy);
 
   Serial.print(" | Still: ");
-  Serial.print(fermo ? "YES" : "NO");
+  Serial.print(still ? "YES" : "NO");
 
   Serial.print(" | E still: ");
-  Serial.print(energiaFermo);
+  Serial.print(stillEnergy);
 
   Serial.print(" | Dist raw: ");
-  Serial.print(distanzaScelta);
+  Serial.print(selectedDistance);
 
   Serial.print(" | Dist filtered: ");
-  Serial.print(distanzaFiltrata);
+  Serial.print(filteredDistance);
 
   Serial.print(" | Dist change: ");
-  Serial.print(cambioDistanza);
+  Serial.print(distanceChange);
 
   Serial.print(" | Stable: ");
-  Serial.print(distanzaStabile ? "YES" : "NO");
+  Serial.print(stableDistance ? "YES" : "NO");
 
   Serial.print(" | Sleep score: ");
-  Serial.print(punteggioSonno);
+  Serial.print(sleepScore);
 
   Serial.print(" | Reason: ");
-  Serial.print(motivoPunteggio);
+  Serial.print(scoreReason);
 
-  if (comandoDashboardThisLoop) {
+  if (dashboardCommandThisLoop) {
     Serial.print(" | DASHBOARD TV OFF");
   }
 
-  if (punteggioSonno >= punteggioSpegnimento && !tvGiaSpenta && autoSpegnimentoAttivo) {
+  if (sleepScore >= sleepThreshold && !tvAlreadyOff && autoPowerEnabled) {
     Serial.print(" | TV OFF");
-    inviaPowerTv(1);
-    tvGiaSpenta = true;
+    sendTvPower(1);
+    tvAlreadyOff = true;
     tvCommandSentThisLoop = true;
-    comandoAutomaticoThisLoop = true;
-  } else if (punteggioSonno >= punteggioSpegnimento && !autoSpegnimentoAttivo) {
+    automaticCommandThisLoop = true;
+  } else if (sleepScore >= sleepThreshold && !autoPowerEnabled) {
     Serial.print(" | THRESHOLD REACHED - MONITOR ONLY");
   }
 
-  inviaLetturaServer(
-    radarConnesso,
-    presenza,
-    personaNelLetto,
-    movimento,
-    fermo,
-    distanzaStabile,
-    energiaMovimento,
-    energiaFermo,
-    distanzaScelta,
-    distanzaFiltrata,
-    cambioDistanza,
+  sendReadingToServer(
+    radarConnected,
+    presence,
+    personInBed,
+    moving,
+    still,
+    stableDistance,
+    movingEnergy,
+    stillEnergy,
+    selectedDistance,
+    filteredDistance,
+    distanceChange,
     tvCommandSentThisLoop,
-    motivoPunteggio
-  );
+    scoreReason);
 
-  if (comandoAutomaticoThisLoop) {
-    inviaEventoServer("tv_power_off_attempt", distanzaFiltrata, "Sleep threshold reached");
+  if (automaticCommandThisLoop) {
+    sendEventToServer("tv_power_off_attempt", filteredDistance, "Sleep threshold reached");
   }
 
   Serial.println();

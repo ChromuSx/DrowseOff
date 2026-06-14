@@ -9,7 +9,6 @@ BROADLINK_HOST = os.environ.get("BROADLINK_HOST", "")
 BROADLINK_PACKET_PATH = Path(
     os.environ.get("BROADLINK_PACKET_PATH", "/data/broadlink_tv_off.b64")
 )
-BROADLINK_AUTO_ENABLED = REMOTE_AUTO_ENABLED
 BROADLINK_TIMEOUT = float(os.environ.get("BROADLINK_TIMEOUT", "5"))
 BROADLINK_REPEAT_DELAY = float(os.environ.get("BROADLINK_REPEAT_DELAY", "0.35"))
 

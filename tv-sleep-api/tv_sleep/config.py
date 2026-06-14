@@ -14,7 +14,9 @@ DEFAULT_SENSOR_DEVICE_ID = os.environ.get(
     "tv-sleep-sensor",
 )
 REMOTE_PROVIDER = os.environ.get("REMOTE_PROVIDER", "broadlink").lower()
-REMOTE_AUTO_ENABLED = os.environ.get(
-    "REMOTE_AUTO_ENABLED",
-    os.environ.get("BROADLINK_AUTO_ENABLED", "1"),
-).lower() not in ("0", "false", "no", "off")
+REMOTE_AUTO_ENABLED = os.environ.get("REMOTE_AUTO_ENABLED", "1").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)

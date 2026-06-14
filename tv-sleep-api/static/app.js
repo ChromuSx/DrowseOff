@@ -73,9 +73,9 @@ const eventTypeLabel = (eventType) => {
     tv_power_off_attempt: 'TV OFF threshold reached',
     tv_power_manual: 'TV OFF sent from dashboard',
     tv_power_manual_failed: 'Dashboard TV OFF failed',
-    tv_power_broadlink_auto: 'TV OFF via BroadLink',
-    tv_power_broadlink_manual: 'Dashboard TV OFF via BroadLink',
-    tv_power_broadlink_failed: 'BroadLink failed',
+    tv_power_broadlink_auto: 'TV OFF via legacy remote',
+    tv_power_broadlink_manual: 'Dashboard TV OFF via legacy remote',
+    tv_power_broadlink_failed: 'Legacy remote failed',
     tv_off_remote_auto: 'TV OFF via remote',
     tv_off_remote_manual: 'Dashboard TV OFF via remote',
     tv_off_remote_failed: 'Remote TV OFF failed'
@@ -135,13 +135,13 @@ const chartTitle = document.getElementById('chartTitle');
 const calibrationStartButton = document.getElementById('calibrationStartButton');
 const calibrationNextButton = document.getElementById('calibrationNextButton');
 const calibrationApplyButton = document.getElementById('calibrationApplyButton');
-const broadlinkLearnStartButton = document.getElementById('broadlinkLearnStartButton');
-const broadlinkLearnCheckButton = document.getElementById('broadlinkLearnCheckButton');
+const remoteLearnStartButton = document.getElementById('remoteLearnStartButton');
+const remoteLearnCheckButton = document.getElementById('remoteLearnCheckButton');
 
 let latestSeries = [];
 let latestSession = {};
 let latestSettings = {};
-let latestBroadlink = {};
+let latestRemote = {};
 let latestCalibration = {};
 let latestReadings = [];
 let latestOnline = false;
@@ -232,20 +232,20 @@ function resetPowerButton() {
 
 function setRemoteAvailability(online) {
   latestOnline = online;
-  const broadlinkReady = Boolean(latestBroadlink.ready);
-  const disabled = !online && !broadlinkReady;
+  const remoteReady = Boolean(latestRemote.ready);
+  const disabled = !online && !remoteReady;
   powerTvButton.disabled = disabled;
   powerRepeatButtons.forEach((button) => {
     button.disabled = disabled;
   });
 
-  document.getElementById('remoteStatus').textContent = broadlinkReady
+  document.getElementById('powerControlStatus').textContent = remoteReady
     ? 'Remote ready'
     : (online ? 'ESP32 online' : 'Remote offline');
 }
 
 async function queuePowerCommand(repeatCount = 1) {
-  if (latestBroadlink.ready) {
+  if (latestRemote.ready) {
     const response = await fetch('/api/remote/send-off', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -287,7 +287,7 @@ async function queuePowerCommand(repeatCount = 1) {
 }
 
 async function sendPowerCommand() {
-  if (!latestOnline && !latestBroadlink.ready) {
+  if (!latestOnline && !latestRemote.ready) {
     setStatus('No remote is ready: ESP32 is offline and the remote hub is not configured.');
     return;
   }
@@ -305,13 +305,13 @@ async function sendPowerCommand() {
   }
 
   powerTvButton.disabled = true;
-  const usingBroadlink = Boolean(latestBroadlink.ready);
-  setStatus(usingBroadlink ? 'Sending TV OFF through the remote...' : 'Queueing TV OFF for the ESP32...');
+  const usingRemoteBackend = Boolean(latestRemote.ready);
+  setStatus(usingRemoteBackend ? 'Sending TV OFF through the remote...' : 'Queueing TV OFF for the ESP32...');
 
   try {
     const result = await queuePowerCommand(1);
     await refresh();
-    setStatus(usingBroadlink
+    setStatus(usingRemoteBackend
       ? `TV OFF sent through the remote (#${result.id}).`
       : `TV OFF queued (#${result.id}). The ESP32 will pick it up on its next check.`);
   } catch (error) {
@@ -322,14 +322,14 @@ async function sendPowerCommand() {
 }
 
 async function sendPowerTest(repeatCount) {
-  setStatus(latestBroadlink.ready
+  setStatus(latestRemote.ready
     ? `Sending remote OFF test x${repeatCount}...`
     : `Queueing ESP32 OFF test x${repeatCount}...`);
 
   try {
     const result = await queuePowerCommand(repeatCount);
     await refresh();
-    setStatus(latestBroadlink.ready
+    setStatus(latestRemote.ready
       ? `Remote OFF test x${repeatCount} sent (#${result.id}).`
       : `ESP32 OFF test x${repeatCount} queued (#${result.id}).`);
   } catch (error) {
@@ -549,28 +549,28 @@ function renderSettings(settings) {
     latestSettings.updated_at ? `Updated ${formatTime(latestSettings.updated_at)}` : 'Default values';
 }
 
-function renderBroadlinkStatus(status) {
-  latestBroadlink = status || {};
-  const statusLabel = document.getElementById('broadlinkStatus');
-  const detail = document.getElementById('broadlinkDetail');
+function renderRemoteStatus(status) {
+  latestRemote = status || {};
+  const statusLabel = document.getElementById('remoteBackendStatus');
+  const detail = document.getElementById('remoteBackendDetail');
 
-  if (!latestBroadlink.library_ready) {
+  if (!latestRemote.library_ready) {
     statusLabel.innerHTML = '<span class="bad">Library missing</span>';
-    detail.textContent = latestBroadlink.library_error || 'Remote backend is not available.';
-  } else if (latestBroadlink.ready) {
+    detail.textContent = latestRemote.library_error || 'Remote backend is not available.';
+  } else if (latestRemote.ready) {
     statusLabel.innerHTML = '<span class="ok">Ready</span>';
-    detail.textContent = `${latestBroadlink.provider || 'remote'} ${latestBroadlink.host || ''} - OFF code saved`;
-  } else if (latestBroadlink.host) {
+    detail.textContent = `${latestRemote.provider || 'remote'} ${latestRemote.host || ''} - OFF code saved`;
+  } else if (latestRemote.host) {
     statusLabel.innerHTML = '<span class="warn">Needs learning</span>';
-    detail.textContent = `${latestBroadlink.host} - OFF code not saved`;
+    detail.textContent = `${latestRemote.host} - OFF code not saved`;
   } else {
     statusLabel.innerHTML = '<span class="bad">Not configured</span>';
     detail.textContent = 'Remote host is missing.';
   }
 }
 
-async function startBroadlinkLearning() {
-  broadlinkLearnStartButton.disabled = true;
+async function startRemoteLearning() {
+  remoteLearnStartButton.disabled = true;
   setStatus('Remote learning mode is starting...');
 
   try {
@@ -580,17 +580,17 @@ async function startBroadlinkLearning() {
       throw new Error(result.error || 'Learning mode did not start');
     }
 
-    renderBroadlinkStatus(result);
+    renderRemoteStatus(result);
     setStatus('Now send the TV OFF command toward the remote hub, then press Save OFF Code.');
   } catch (error) {
     setStatus(`Remote error: ${error.message}`);
   } finally {
-    broadlinkLearnStartButton.disabled = false;
+    remoteLearnStartButton.disabled = false;
   }
 }
 
-async function checkBroadlinkLearning() {
-  broadlinkLearnCheckButton.disabled = true;
+async function checkRemoteLearning() {
+  remoteLearnCheckButton.disabled = true;
   setStatus('Checking received OFF code...');
 
   try {
@@ -600,13 +600,13 @@ async function checkBroadlinkLearning() {
       throw new Error(result.error || 'OFF code was not received');
     }
 
-    renderBroadlinkStatus(result);
+    renderRemoteStatus(result);
     await refresh();
     setStatus(`Remote OFF code saved (${result.bytes} bytes).`);
   } catch (error) {
     setStatus(`Remote learning error: ${error.message}`);
   } finally {
-    broadlinkLearnCheckButton.disabled = false;
+    remoteLearnCheckButton.disabled = false;
   }
 }
 
@@ -1003,7 +1003,7 @@ function renderReadings(readings) {
 }
 
 async function refresh() {
-  const [summary, settings, broadlink, sessionSummary, calibration, session, series, events, commands, readings] = await Promise.all([
+  const [summary, settings, remote, sessionSummary, calibration, session, series, events, commands, readings] = await Promise.all([
     fetch('/api/summary').then((response) => response.json()),
     fetch('/api/settings').then((response) => response.json()),
     fetch('/api/remote/status').then((response) => response.json()),
@@ -1020,7 +1020,7 @@ async function refresh() {
   latestReadings = readings;
 
   renderSettings(settings);
-  renderBroadlinkStatus(broadlink);
+  renderRemoteStatus(remote);
   renderHero(summary, session, settings);
   renderSummaryCards(summary, session, settings);
   renderSessionSummary(sessionSummary);
@@ -1070,8 +1070,8 @@ clearDataButton.addEventListener('click', clearData);
 calibrationStartButton.addEventListener('click', startCalibrationWizard);
 calibrationNextButton.addEventListener('click', nextCalibrationStep);
 calibrationApplyButton.addEventListener('click', applyCalibrationRange);
-broadlinkLearnStartButton.addEventListener('click', startBroadlinkLearning);
-broadlinkLearnCheckButton.addEventListener('click', checkBroadlinkLearning);
+remoteLearnStartButton.addEventListener('click', startRemoteLearning);
+remoteLearnCheckButton.addEventListener('click', checkRemoteLearning);
 document.getElementById('commandRows').addEventListener('click', (event) => {
   const button = event.target.closest('[data-cancel-command]');
   if (!button) return;

@@ -19,327 +19,446 @@
   <script defer src="/static/app.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div>
-      <h1>DrowseOff</h1>
-      <p class="page-subtitle">Session status, sensor readings, TV commands, and calibration in one place.</p>
-    </div>
-    <div class="header-actions">
-      <div class="theme-switch" role="group" aria-label="Dashboard theme">
-        <button class="theme-option" type="button" data-theme-option="system">System</button>
-        <button class="theme-option" type="button" data-theme-option="light">Light</button>
-        <button class="theme-option" type="button" data-theme-option="dark">Dark</button>
-      </div>
-      <button class="secondary-button" type="button" id="apiTokenButton">API Token</button>
-      <a class="secondary-button" href="/api/export/readings.csv" data-export-url="/api/export/readings.csv" download>Readings CSV</a>
-    </div>
-  </header>
-
-  <div class="status-message" id="statusMessage" role="status" aria-live="polite"></div>
-
-  <section class="hero-status" aria-label="Main status">
-    <div class="verdict-card">
-      <div class="verdict-kicker">
-        <span class="status-pill" id="verdictBadge">-</span>
-        <span id="autoModePill" class="status-pill neutral">-</span>
-      </div>
-      <h2 id="verdictTitle">Loading data...</h2>
-      <p id="verdictDetail">Waiting for the latest ESP32 readings.</p>
-      <div class="score-progress" aria-label="Score progress toward threshold">
-        <div class="score-progress-fill" id="scoreProgressFill"></div>
-      </div>
-      <div class="score-progress-label" id="scoreProgressLabel">-</div>
-    </div>
-
-    <div class="status-stack">
-      <div class="status-tile">
-        <span>ESP32</span>
-        <strong id="deviceState">-</strong>
-      </div>
-      <div class="status-tile">
-        <span>Latest reading</span>
-        <strong id="lastSeenLabel">-</strong>
-      </div>
-      <div class="status-tile">
-        <span>Pending commands</span>
-        <strong id="pendingCommandsLabel">-</strong>
-      </div>
-    </div>
-  </section>
-
-  <nav class="tabbar" aria-label="Dashboard sections">
-    <button class="tab-button" type="button" data-tab-target="overview">Overview</button>
-    <button class="tab-button" type="button" data-tab-target="session">Session</button>
-    <button class="tab-button" type="button" data-tab-target="calibration">Calibration</button>
-    <button class="tab-button" type="button" data-tab-target="commands">TV Commands</button>
-    <button class="tab-button" type="button" data-tab-target="settings">Settings</button>
-    <button class="tab-button" type="button" data-tab-target="data">Data</button>
-  </nav>
-
-  <main>
-    <section class="tab-panel" data-tab-panel="overview">
-      <div class="grid" id="cards"></div>
-
-      <div class="two-column">
-        <div class="card" id="sessionReportCard">
-          <div class="section-title compact-title">
-            <strong>Session Report</strong>
-            <span class="section-note" id="sessionSummaryWindow">-</span>
-          </div>
-          <p class="report-text" id="sessionSummary">-</p>
-          <div class="mini-metrics" id="sessionMetrics"></div>
-        </div>
-
-        <div class="card insight-card">
-          <div class="section-title compact-title">
-            <strong>Why the score changed</strong>
-            <span class="section-note">Latest useful reading</span>
-          </div>
-          <p class="report-text" id="scoreReasonText">-</p>
-          <div class="mini-metrics" id="latestReasonMetrics"></div>
-        </div>
-      </div>
-
-      <div class="card chart-card">
-        <div class="chart-header">
-          <div>
-            <strong id="chartTitle">Sleep score</strong>
-            <span class="chart-caption" id="chartCaption">-</span>
-          </div>
-          <div class="segmented-control" role="group" aria-label="Chart type">
-            <button class="segment-button" type="button" data-chart-mode="score">Score</button>
-            <button class="segment-button" type="button" data-chart-mode="distance">Distance</button>
-          </div>
-        </div>
-        <div class="chart-wrap">
-          <canvas class="chart" id="sleepChart" aria-label="Session chart"></canvas>
-        </div>
-        <div class="legend-row">
-          <span><i class="legend-dot accent"></i>Main line</span>
-          <span><i class="legend-dot soft"></i>In bed</span>
-          <span><i class="legend-dot bad"></i>TV OFF</span>
-        </div>
-      </div>
-    </section>
-
-    <section class="tab-panel" data-tab-panel="session">
-      <div class="section-title">
-        <strong>Recent Session</strong>
-        <span class="section-note" id="sessionWindow">-</span>
-      </div>
-      <div class="grid" id="sessionCards"></div>
-    </section>
-
-    <section class="tab-panel" data-tab-panel="calibration">
-      <div class="two-column calibration-layout">
-        <div class="card wizard-card">
-          <div class="section-title compact-title">
-            <strong>Calibration Wizard</strong>
-            <span class="section-note">Guided</span>
-          </div>
-          <div class="wizard-step" id="calibrationStepTitle">Ready</div>
-          <p class="report-text" id="calibrationStepDetail">Lie in bed, then start a guided session. At the end you can apply the suggested range.</p>
-          <div class="wizard-timer" id="calibrationTimer">--</div>
-          <div class="button-row">
-            <button class="secondary-button" type="button" id="calibrationStartButton">Start</button>
-            <button class="secondary-button" type="button" id="calibrationNextButton" disabled>Next step</button>
-            <button class="power-button" type="button" id="calibrationApplyButton" disabled>Apply range</button>
-          </div>
-        </div>
-
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">DO</div>
         <div>
-          <div class="section-title">
-            <strong>Calibration</strong>
-            <span class="section-note">Filtered distances detected in bed</span>
-          </div>
-          <div class="grid compact-grid" id="calibrationCards"></div>
+          <h1>DrowseOff</h1>
+          <span>bedroom / primary sensor</span>
         </div>
       </div>
-    </section>
 
-    <section class="tab-panel" data-tab-panel="commands">
-      <div class="control-grid">
-        <div class="card">
-          <div class="section-title compact-title">
-            <strong>TV Remote</strong>
-            <span class="section-note" id="powerControlStatus">-</span>
-          </div>
-          <button class="power-button main-power" type="button" id="powerTvButton">Turn TV off</button>
-          <div class="button-row remote-tests">
-            <button class="power-button" type="button" data-power-repeat="1">OFF x1</button>
-            <button class="power-button" type="button" data-power-repeat="2">OFF x2</button>
-            <button class="power-button" type="button" data-power-repeat="3">OFF x3</button>
-          </div>
+      <div class="header-actions">
+        <span class="status-pill neutral" id="topbarApiState">API local</span>
+        <span class="status-pill neutral" id="topbarRefreshState">refresh 10s</span>
+        <div class="theme-switch" role="group" aria-label="Dashboard theme">
+          <button class="theme-option" type="button" data-theme-option="system">System</button>
+          <button class="theme-option" type="button" data-theme-option="light">Light</button>
+          <button class="theme-option" type="button" data-theme-option="dark">Dark</button>
         </div>
-
-        <div class="card">
-          <div class="section-title compact-title">
-            <strong>Remote Backend</strong>
-            <span class="section-note" id="remoteBackendStatus">-</span>
-          </div>
-          <div class="metric-detail" id="remoteBackendDetail">-</div>
-          <div class="button-row remote-tests">
-            <button class="secondary-button" type="button" id="remoteLearnStartButton">Start learning</button>
-            <button class="secondary-button" type="button" id="remoteLearnCheckButton">Save OFF code</button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="section-title compact-title">
-            <strong>Manual Commands</strong>
-            <span class="section-note">ESP32 and remote backend</span>
-          </div>
-          <div class="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Command</th>
-                  <th>Status</th>
-                  <th>Expires</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody id="commandRows"></tbody>
-            </table>
-          </div>
-        </div>
+        <button class="secondary-button" type="button" id="apiTokenButton">API Token</button>
+        <a class="secondary-button" href="/api/export/readings.csv" data-export-url="/api/export/readings.csv" download>Export</a>
       </div>
-    </section>
+    </header>
 
-    <section class="tab-panel" data-tab-panel="settings">
-      <div class="section-title">
-        <strong>Settings</strong>
-        <span class="section-note" id="settingsUpdated">-</span>
-      </div>
+    <div class="status-message" id="statusMessage" role="status" aria-live="polite"></div>
 
-      <div class="card mode-card">
-        <div>
-          <strong>Automatic TV OFF</strong>
-          <p class="report-text">When disabled, the ESP32 keeps recording everything but does not turn the TV off by itself.</p>
+    <div class="ops-layout">
+      <aside class="sidebar" aria-label="Primary navigation">
+        <nav class="tabbar" aria-label="Dashboard sections">
+          <button class="tab-button" type="button" data-tab-target="overview">Overview <span>live</span></button>
+          <button class="tab-button" type="button" data-tab-target="session">Session <span>latest</span></button>
+          <button class="tab-button" type="button" data-tab-target="calibration">Calibration <span>range</span></button>
+          <button class="tab-button" type="button" data-tab-target="commands">TV Commands <span>remote</span></button>
+          <button class="tab-button" type="button" data-tab-target="settings">Settings <span>device</span></button>
+          <button class="tab-button" type="button" data-tab-target="data">Data <span>tables</span></button>
+        </nav>
+
+        <div class="sidebar-group">
+          <div class="sidebar-title">Filters</div>
+          <div class="sidebar-row"><span>Device</span><strong>all</strong></div>
+          <div class="sidebar-row"><span>Window</span><strong>recent</strong></div>
+          <div class="sidebar-row"><span>Mode</span><strong id="autoModeSidebar">auto</strong></div>
         </div>
-        <label class="toggle">
-          <input id="autoModeToggle" type="checkbox">
-          <span class="toggle-track"></span>
-          <strong id="autoModeLabel">-</strong>
-        </label>
-      </div>
 
-      <form class="settings-form" id="settingsForm">
-        <fieldset>
-          <legend>When to turn off</legend>
-          <label>
-            <span>Sleep threshold</span>
-            <input id="settingSleepThreshold" name="sleep_threshold" type="number" min="30" max="3600" step="10">
-          </label>
-          <label>
-            <span>Out-of-bed tolerance</span>
-            <input id="settingOutOfBedLimit" name="out_of_bed_limit" type="number" min="1" max="60" step="1">
-          </label>
-        </fieldset>
-
-        <fieldset>
-          <legend>Where the bed is</legend>
-          <label>
-            <span>Bed min distance</span>
-            <input id="settingDistanceMin" name="distance_min_cm" type="number" min="20" max="400" step="1">
-          </label>
-          <label>
-            <span>Bed max distance</span>
-            <input id="settingDistanceMax" name="distance_max_cm" type="number" min="30" max="600" step="1">
-          </label>
-        </fieldset>
-
-        <fieldset>
-          <legend>Movement</legend>
-          <label>
-            <span>Quiet distance change</span>
-            <input id="settingQuietDistance" name="distance_quiet_cm" type="number" min="1" max="120" step="1">
-          </label>
-          <label>
-            <span>Strong distance change</span>
-            <input id="settingStrongDistance" name="distance_strong_cm" type="number" min="5" max="200" step="1">
-          </label>
-        </fieldset>
-
-        <fieldset>
-          <legend>Remote</legend>
-          <label>
-            <span>ESP32 IR backup repeats</span>
-            <input id="settingIrRepeats" name="ir_repeats" type="number" min="0" max="5" step="1">
-          </label>
-          <label>
-            <span>ESP32 IR auto fallback</span>
-            <select id="settingEsp32IrAuto" name="esp32_ir_auto_enabled">
-              <option value="0">Disabled</option>
-              <option value="1">Enabled</option>
-            </select>
-          </label>
-          <label>
-            <span>Command expiry</span>
-            <input id="settingCommandTtl" name="command_ttl_seconds" type="number" min="15" max="900" step="15">
-          </label>
-        </fieldset>
-
-        <div class="form-actions">
-          <button class="secondary-button" type="submit">Save settings</button>
+        <div class="sidebar-group">
+          <div class="sidebar-title">Runbook</div>
+          <div class="sidebar-link">Remote failed</div>
+          <div class="sidebar-link">Sensor offline</div>
+          <div class="sidebar-link">False positive</div>
         </div>
-      </form>
-    </section>
+      </aside>
 
-    <section class="tab-panel" data-tab-panel="data">
-      <div class="data-actions">
-        <a class="secondary-button" href="/api/export/readings.csv" data-export-url="/api/export/readings.csv" download>Readings CSV</a>
-        <a class="secondary-button" href="/api/export/events.csv" data-export-url="/api/export/events.csv" download>Events CSV</a>
-        <a class="secondary-button" href="/api/export/commands.csv" data-export-url="/api/export/commands.csv" download>Commands CSV</a>
-        <button class="danger-button" type="button" id="clearDataButton">Clear all data</button>
-      </div>
-
-      <section class="dashboard-section">
-        <div class="section-title">
-          <strong>Recent Events</strong>
-          <span class="section-note">TV attempts and other saved events</span>
-        </div>
-        <div class="card">
-          <div class="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Event</th>
-                  <th>Score</th>
-                  <th>Distance</th>
-                  <th>Note</th>
-                </tr>
-              </thead>
-              <tbody id="eventRows"></tbody>
-            </table>
+      <main class="workspace">
+        <section class="ops-kpis" aria-label="Main system status">
+          <div class="kpi state-kpi">
+            <div class="kpi-label">System state</div>
+            <strong id="verdictTitle">Loading</strong>
+            <small id="verdictDetail">Waiting for sensor data.</small>
+            <div class="kpi-pills">
+              <span class="status-pill neutral" id="verdictBadge">-</span>
+              <span id="autoModePill" class="status-pill neutral">-</span>
+            </div>
           </div>
-        </div>
-      </section>
 
-      <div class="card">
-        <strong>Latest Readings</strong>
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Radar</th>
-                <th>Bed</th>
-                <th>Stable</th>
-                <th>Raw</th>
-                <th>Filtered</th>
-                <th>Score</th>
-                <th>Reason</th>
-                <th>TV</th>
-              </tr>
-            </thead>
-            <tbody id="rows"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-  </main>
+          <div class="kpi">
+            <div class="kpi-label">Sleep score</div>
+            <strong id="scoreProgressLabel">-</strong>
+            <div class="score-progress" aria-label="Score progress toward threshold">
+              <div class="score-progress-fill" id="scoreProgressFill"></div>
+            </div>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi-label">ESP32</div>
+            <strong id="deviceState">-</strong>
+            <small>sensor link</small>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi-label">Latest reading</div>
+            <strong id="lastSeenLabel">-</strong>
+            <small>server timestamp</small>
+          </div>
+
+          <div class="kpi">
+            <div class="kpi-label">Pending commands</div>
+            <strong id="pendingCommandsLabel">-</strong>
+            <small>expire automatically</small>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="overview">
+          <div class="grid compact-grid" id="cards"></div>
+
+          <section class="panel chart-panel">
+            <div class="panel-head">
+              <div>
+                <strong id="chartTitle">Sleep score</strong>
+                <span id="chartCaption">-</span>
+              </div>
+              <div class="segmented-control" role="group" aria-label="Chart type">
+                <button class="segment-button" type="button" data-chart-mode="score">Score</button>
+                <button class="segment-button" type="button" data-chart-mode="distance">Distance</button>
+              </div>
+            </div>
+            <div class="chart-wrap">
+              <canvas class="chart" id="sleepChart" aria-label="Session chart"></canvas>
+            </div>
+            <div class="legend-row">
+              <span><i class="legend-dot accent"></i>Main line</span>
+              <span><i class="legend-dot soft"></i>In bed</span>
+              <span><i class="legend-dot bad"></i>TV OFF</span>
+            </div>
+          </section>
+
+          <div class="two-column">
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <strong>Session report</strong>
+                  <span id="sessionSummaryWindow">-</span>
+                </div>
+              </div>
+              <p class="report-text" id="sessionSummary">-</p>
+              <div class="mini-metrics" id="sessionMetrics"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <strong>Score driver</strong>
+                  <span>latest useful reading</span>
+                </div>
+              </div>
+              <p class="report-text" id="scoreReasonText">-</p>
+              <div class="mini-metrics" id="latestReasonMetrics"></div>
+            </section>
+          </div>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <strong>Recent events</strong>
+                <span>thresholds, remote sends, and failures</span>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Event</th>
+                    <th>Score</th>
+                    <th>Distance</th>
+                    <th>Note</th>
+                  </tr>
+                </thead>
+                <tbody id="eventRows"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="session">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <strong>Recent session</strong>
+                <span id="sessionWindow">-</span>
+              </div>
+            </div>
+            <div class="grid compact-grid" id="sessionCards"></div>
+          </section>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="calibration">
+          <div class="two-column calibration-layout">
+            <section class="panel wizard-panel">
+              <div class="panel-head">
+                <div>
+                  <strong>Calibration wizard</strong>
+                  <span>guided range capture</span>
+                </div>
+              </div>
+              <div class="wizard-body">
+                <div class="wizard-step" id="calibrationStepTitle">Ready</div>
+                <p class="report-text" id="calibrationStepDetail">Lie in bed, then start a guided session. At the end you can apply the suggested range.</p>
+                <div class="wizard-timer" id="calibrationTimer">--</div>
+                <div class="button-row">
+                  <button class="secondary-button" type="button" id="calibrationStartButton">Start</button>
+                  <button class="secondary-button" type="button" id="calibrationNextButton" disabled>Next step</button>
+                  <button class="power-button" type="button" id="calibrationApplyButton" disabled>Apply range</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <strong>Distance distribution</strong>
+                  <span>filtered in-bed samples</span>
+                </div>
+              </div>
+              <div class="grid compact-grid" id="calibrationCards"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="commands">
+          <div class="control-grid">
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <strong>TV remote</strong>
+                  <span id="powerControlStatus">-</span>
+                </div>
+              </div>
+              <div class="panel-body">
+                <button class="power-button main-power" type="button" id="powerTvButton">Turn TV off</button>
+                <div class="button-row remote-tests">
+                  <button class="power-button" type="button" data-power-repeat="1">OFF x1</button>
+                  <button class="power-button" type="button" data-power-repeat="2">OFF x2</button>
+                  <button class="power-button" type="button" data-power-repeat="3">OFF x3</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-head">
+                <div>
+                  <strong>Remote backend</strong>
+                  <span id="remoteBackendStatus">-</span>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div class="metric-detail" id="remoteBackendDetail">-</div>
+                <div class="button-row remote-tests">
+                  <button class="secondary-button" type="button" id="remoteLearnStartButton">Start learning</button>
+                  <button class="secondary-button" type="button" id="remoteLearnCheckButton">Save OFF code</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel wide-panel">
+              <div class="panel-head">
+                <div>
+                  <strong>Manual commands</strong>
+                  <span>ESP32 fallback and remote backend</span>
+                </div>
+              </div>
+              <div class="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Time</th>
+                      <th>Command</th>
+                      <th>Status</th>
+                      <th>Expires</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="commandRows"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="settings">
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <strong>Settings</strong>
+                <span id="settingsUpdated">-</span>
+              </div>
+            </div>
+
+            <div class="mode-card">
+              <div>
+                <strong>Automatic TV OFF</strong>
+                <p class="report-text">When disabled, the ESP32 keeps recording everything but does not turn the TV off by itself.</p>
+              </div>
+              <label class="toggle">
+                <input id="autoModeToggle" type="checkbox">
+                <span class="toggle-track"></span>
+                <strong id="autoModeLabel">-</strong>
+              </label>
+            </div>
+
+            <form class="settings-form" id="settingsForm">
+              <fieldset>
+                <legend>When to turn off</legend>
+                <label>
+                  <span>Sleep threshold</span>
+                  <input id="settingSleepThreshold" name="sleep_threshold" type="number" min="30" max="3600" step="10">
+                </label>
+                <label>
+                  <span>Out-of-bed tolerance</span>
+                  <input id="settingOutOfBedLimit" name="out_of_bed_limit" type="number" min="1" max="60" step="1">
+                </label>
+              </fieldset>
+
+              <fieldset>
+                <legend>Where the bed is</legend>
+                <label>
+                  <span>Bed min distance</span>
+                  <input id="settingDistanceMin" name="distance_min_cm" type="number" min="20" max="400" step="1">
+                </label>
+                <label>
+                  <span>Bed max distance</span>
+                  <input id="settingDistanceMax" name="distance_max_cm" type="number" min="30" max="600" step="1">
+                </label>
+              </fieldset>
+
+              <fieldset>
+                <legend>Movement</legend>
+                <label>
+                  <span>Quiet distance change</span>
+                  <input id="settingQuietDistance" name="distance_quiet_cm" type="number" min="1" max="120" step="1">
+                </label>
+                <label>
+                  <span>Strong distance change</span>
+                  <input id="settingStrongDistance" name="distance_strong_cm" type="number" min="5" max="200" step="1">
+                </label>
+              </fieldset>
+
+              <fieldset>
+                <legend>Remote</legend>
+                <label>
+                  <span>ESP32 IR backup repeats</span>
+                  <input id="settingIrRepeats" name="ir_repeats" type="number" min="0" max="5" step="1">
+                </label>
+                <label>
+                  <span>ESP32 IR auto fallback</span>
+                  <select id="settingEsp32IrAuto" name="esp32_ir_auto_enabled">
+                    <option value="0">Disabled</option>
+                    <option value="1">Enabled</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Command expiry</span>
+                  <input id="settingCommandTtl" name="command_ttl_seconds" type="number" min="15" max="900" step="15">
+                </label>
+              </fieldset>
+
+              <div class="form-actions">
+                <button class="secondary-button" type="submit">Save settings</button>
+              </div>
+            </form>
+          </section>
+        </section>
+
+        <section class="tab-panel" data-tab-panel="data">
+          <div class="data-actions">
+            <a class="secondary-button" href="/api/export/readings.csv" data-export-url="/api/export/readings.csv" download>Readings CSV</a>
+            <a class="secondary-button" href="/api/export/events.csv" data-export-url="/api/export/events.csv" download>Events CSV</a>
+            <a class="secondary-button" href="/api/export/commands.csv" data-export-url="/api/export/commands.csv" download>Commands CSV</a>
+            <button class="danger-button" type="button" id="clearDataButton">Clear all data</button>
+          </div>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <strong>Latest readings</strong>
+                <span>raw ingestion table</span>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Radar</th>
+                    <th>Bed</th>
+                    <th>Stable</th>
+                    <th>Raw</th>
+                    <th>Filtered</th>
+                    <th>Score</th>
+                    <th>Reason</th>
+                    <th>TV</th>
+                  </tr>
+                </thead>
+                <tbody id="rows"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </main>
+
+      <aside class="right-rail" aria-label="Operations rail">
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <strong>Components</strong>
+              <span>health</span>
+            </div>
+          </div>
+          <div class="status-list">
+            <div class="status-row">
+              <div><strong>ESP32 sensor</strong><span id="componentSensorDetail">last seen -</span></div>
+              <span class="status-pill neutral" id="componentSensorState">-</span>
+            </div>
+            <div class="status-row">
+              <div><strong>Remote backend</strong><span id="componentRemoteDetail">-</span></div>
+              <span class="status-pill neutral" id="componentRemoteState">-</span>
+            </div>
+            <div class="status-row">
+              <div><strong>Mode</strong><span>automatic command policy</span></div>
+              <span class="status-pill neutral" id="componentModeState">-</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <strong>Active alerts</strong>
+              <span id="alertCountLabel">0 grouped</span>
+            </div>
+          </div>
+          <div class="alert-box" id="opsAlertBox">
+            <strong>No active alerts</strong>
+            <p>Sensor, remote backend, and ingestion are operating normally.</p>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <strong>Quick actions</strong>
+              <span>guarded</span>
+            </div>
+          </div>
+          <div class="rail-actions">
+            <button class="power-button" type="button" id="railPowerButton">Send TV OFF</button>
+            <button class="secondary-button" type="button" id="railCalibrationButton">Start calibration</button>
+            <button class="secondary-button" type="button" id="railDataButton">Open data table</button>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
 </body>
 </html>

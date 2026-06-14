@@ -81,9 +81,9 @@ const eventTypeLabel = (eventType) => {
     tv_power_off_attempt: 'TV OFF threshold reached',
     tv_power_manual: 'TV OFF sent from dashboard',
     tv_power_manual_failed: 'Dashboard TV OFF failed',
-    tv_power_broadlink_auto: 'TV OFF via legacy remote',
-    tv_power_broadlink_manual: 'Dashboard TV OFF via legacy remote',
-    tv_power_broadlink_failed: 'Legacy remote failed',
+    tv_power_broadlink_auto: 'TV OFF via BroadLink',
+    tv_power_broadlink_manual: 'Dashboard TV OFF via BroadLink',
+    tv_power_broadlink_failed: 'BroadLink remote failed',
     tv_off_remote_auto: 'TV OFF via remote',
     tv_off_remote_manual: 'Dashboard TV OFF via remote',
     tv_off_remote_failed: 'Remote TV OFF failed',
@@ -148,6 +148,9 @@ const calibrationNextButton = document.getElementById('calibrationNextButton');
 const calibrationApplyButton = document.getElementById('calibrationApplyButton');
 const remoteLearnStartButton = document.getElementById('remoteLearnStartButton');
 const remoteLearnCheckButton = document.getElementById('remoteLearnCheckButton');
+const railPowerButton = document.getElementById('railPowerButton');
+const railCalibrationButton = document.getElementById('railCalibrationButton');
+const railDataButton = document.getElementById('railDataButton');
 
 let latestSeries = [];
 let latestSession = {};
@@ -332,6 +335,7 @@ function resetClearButton() {
 function resetPowerButton() {
   powerArmed = false;
   powerTvButton.textContent = 'Turn TV off';
+  railPowerButton.textContent = 'Send TV OFF';
   setRemoteAvailability(latestOnline);
 
   if (powerArmedTimer) {
@@ -345,6 +349,7 @@ function setRemoteAvailability(online) {
   const remoteReady = Boolean(latestRemote.ready);
   const disabled = !online && !remoteReady;
   powerTvButton.disabled = disabled;
+  railPowerButton.disabled = disabled;
   powerRepeatButtons.forEach((button) => {
     button.disabled = disabled;
   });
@@ -405,6 +410,7 @@ async function sendPowerCommand() {
   if (!powerArmed) {
     powerArmed = true;
     powerTvButton.textContent = 'Confirm TV OFF';
+    railPowerButton.textContent = 'Confirm TV OFF';
     setStatus('Press again to send the TV OFF command.');
 
     powerArmedTimer = setTimeout(() => {
@@ -534,31 +540,36 @@ function renderHero(summary, session, settings) {
 
   if (!session.readings) {
     badge.textContent = 'Waiting';
-    title.textContent = 'No readable session yet';
-    detail.textContent = 'Once the sensor sees stable presence in bed, the session verdict will appear here.';
+    title.className = 'neutral';
+    title.textContent = 'Waiting';
+    detail.textContent = 'No readable session yet.';
   } else if (powerEvent) {
     badge.className = 'status-pill ok';
-    badge.textContent = 'TV OFF sent';
-    title.textContent = `TV OFF sent at ${formatClock(powerEvent.ts)}`;
-    detail.textContent = `Recorded with score ${powerEvent.sleep_score ?? '-'} and distance ${powerEvent.dist_filtered ?? '-'} cm.`;
+    badge.textContent = 'Confirmed';
+    title.className = 'ok';
+    title.textContent = 'TV OFF confirmed';
+    detail.textContent = `Sent at ${formatClock(powerEvent.ts)} with score ${powerEvent.sleep_score ?? '-'}.`;
   } else if (score >= threshold && threshold > 0 && !autoOn) {
     badge.className = 'status-pill warn';
-    badge.textContent = 'Threshold reached';
-    title.textContent = 'This session looks ready for TV OFF, but monitoring-only mode is active';
-    detail.textContent = `The score reached ${score}/${threshold}. No automatic TV OFF is sent in this mode.`;
+    badge.textContent = 'Monitor';
+    title.className = 'warn';
+    title.textContent = 'Threshold reached';
+    detail.textContent = `${score}/${threshold}; automatic TV OFF is disabled.`;
   } else if (score >= threshold && threshold > 0) {
     badge.className = 'status-pill warn';
-    badge.textContent = 'Check needed';
-    title.textContent = 'Threshold reached, but no successful TV OFF event is visible';
-    detail.textContent = 'Check events and commands: the remote provider may be missing, offline, or failing to send.';
+    badge.textContent = 'Review';
+    title.className = 'warn';
+    title.textContent = 'Action needed';
+    detail.textContent = 'Threshold reached without a confirmed TV OFF event.';
   } else {
     badge.textContent = 'Monitoring';
-    title.textContent = 'No TV OFF in the recent session';
-    detail.textContent = `Max score ${score}/${threshold || '-'}. The system is still watching or has not reached the threshold.`;
+    title.className = 'ok';
+    title.textContent = 'Normal';
+    detail.textContent = `Max score ${score}/${threshold || '-'}; no TV OFF needed.`;
   }
 
   document.getElementById('scoreProgressFill').style.width = `${progress}%`;
-  document.getElementById('scoreProgressLabel').textContent = `Max score ${score} of threshold ${threshold || '-'}`;
+  document.getElementById('scoreProgressLabel').textContent = `${score}/${threshold || '-'}`;
   document.getElementById('deviceState').innerHTML = latestOnline
     ? '<span class="ok">Online</span>'
     : '<span class="bad">Offline</span>';
@@ -654,6 +665,7 @@ function renderSettings(settings) {
   const autoOn = Number(latestSettings.auto_power_enabled ?? 1) === 1;
   autoModeToggle.checked = autoOn;
   autoModeLabel.textContent = autoOn ? 'Auto' : 'Monitor';
+  document.getElementById('autoModeSidebar').textContent = autoOn ? 'auto' : 'monitor';
 
   document.getElementById('settingsUpdated').textContent =
     latestSettings.updated_at ? `Updated ${formatTime(latestSettings.updated_at)}` : 'Default values';
@@ -676,6 +688,57 @@ function renderRemoteStatus(status) {
   } else {
     statusLabel.innerHTML = '<span class="bad">Not configured</span>';
     detail.textContent = 'Remote host is missing.';
+  }
+}
+
+function setPill(id, label, state = 'neutral') {
+  const element = document.getElementById(id);
+  if (!element) return;
+  element.className = `status-pill ${state}`;
+  element.textContent = label;
+}
+
+function renderOperationsRail(summary, settings, remote, session) {
+  const autoOn = Number(settings.auto_power_enabled ?? 1) === 1;
+  const sensorDetail = latestOnline
+    ? `last seen ${formatTime(summary.last_ts)}`
+    : 'no recent reading';
+  const remoteReady = Boolean(remote.ready);
+  const powerEvent = session.session_power_event;
+  const threshold = Number(session.threshold || settings.sleep_threshold || 0);
+  const score = Number(session.max_sleep_score || summary.max_sleep_score || 0);
+  const thresholdReached = threshold > 0 && score >= threshold;
+
+  document.getElementById('componentSensorDetail').textContent = sensorDetail;
+  document.getElementById('componentRemoteDetail').textContent = remote.host
+    ? `${remote.provider || 'remote'} ${remote.host}`
+    : 'host not configured';
+
+  setPill('componentSensorState', latestOnline ? 'up' : 'down', latestOnline ? 'ok' : 'bad');
+  setPill('componentRemoteState', remoteReady ? 'ready' : 'check', remoteReady ? 'ok' : 'warn');
+  setPill('componentModeState', autoOn ? 'auto' : 'monitor', autoOn ? 'ok' : 'warn');
+  setPill('topbarApiState', 'API local', 'ok');
+  setPill('topbarRefreshState', 'refresh 10s', 'neutral');
+
+  const alertBox = document.getElementById('opsAlertBox');
+  const alertCount = document.getElementById('alertCountLabel');
+  alertBox.className = 'alert-box';
+
+  if (!latestOnline) {
+    alertBox.classList.add('bad');
+    alertBox.innerHTML = '<strong>Sensor offline</strong><p>No recent ESP32 reading. Check power, Wi-Fi, or API token configuration.</p>';
+    alertCount.textContent = '1 grouped';
+  } else if (!remoteReady) {
+    alertBox.classList.add('warn');
+    alertBox.innerHTML = '<strong>Remote not ready</strong><p>The dashboard can monitor sessions, but TV OFF may fall back to ESP32 IR or fail.</p>';
+    alertCount.textContent = '1 grouped';
+  } else if (thresholdReached && !powerEvent && autoOn) {
+    alertBox.classList.add('warn');
+    alertBox.innerHTML = '<strong>Threshold without confirmation</strong><p>The score reached the threshold, but no confirmed TV OFF event is attached to this session.</p>';
+    alertCount.textContent = '1 grouped';
+  } else {
+    alertBox.innerHTML = '<strong>No active alerts</strong><p>Sensor, remote backend, and ingestion are operating normally.</p>';
+    alertCount.textContent = '0 grouped';
   }
 }
 
@@ -1142,6 +1205,7 @@ async function refresh() {
   renderCommands(commands);
   renderReadings(readings);
   setRemoteAvailability(latestOnline);
+  renderOperationsRail(summary, settings, remote, session);
 }
 
 themeButtons.forEach((button) => {
@@ -1173,6 +1237,9 @@ exportLinks.forEach((link) => {
   link.addEventListener('click', downloadExport);
 });
 powerTvButton.addEventListener('click', sendPowerCommand);
+railPowerButton.addEventListener('click', sendPowerCommand);
+railCalibrationButton.addEventListener('click', () => selectTab('calibration'));
+railDataButton.addEventListener('click', () => selectTab('data'));
 powerRepeatButtons.forEach((button) => {
   button.addEventListener('click', () => {
     sendPowerTest(Number(button.dataset.powerRepeat || 1));

@@ -1,11 +1,25 @@
 # TV Sleep Monitor
 
 Progetto DIY per rilevare quando una persona si addormenta davanti alla TV e
-spegnere la TV Samsung tramite un ESP32, un sensore radar LD2410C e un
-trasmettitore IR.
+spegnere la TV Samsung tramite un ESP32, un sensore radar LD2410C, un mini PC
+locale e un BroadLink RM Mini3.
 
 Il progetto include anche una dashboard locale sul mini PC per vedere letture,
-calibrazione, comandi TV, report notturno e impostazioni.
+calibrazione, comandi TV, sessioni recenti e impostazioni.
+
+## Come funziona
+
+```text
+LD2410C + ESP32 vicino al letto
+  -> letture presenza/stabilita via Wi-Fi
+  -> mini PC con dashboard e database SQLite
+  -> BroadLink RM Mini3 vicino alla TV
+  -> comando IR OFF TV
+```
+
+L'ESP32 non deve piu essere vicino alla TV: rileva solo presenza, distanza e
+stabilita nel letto. Lo spegnimento IR affidabile viene fatto dal BroadLink,
+posizionato vicino alla TV.
 
 ## Struttura
 
@@ -44,8 +58,24 @@ Vedi `tv-sleep-api/README.md` per avvio Docker, API e note operative.
 
 - ESP32 NodeMCU
 - Sensore presenza LD2410C
-- Modulo trasmettitore IR 38 kHz
 - Mini PC con Docker per dashboard e database
+- BroadLink RM Mini3 collegato al Wi-Fi e posizionato vicino alla TV
+
+Il vecchio modulo trasmettitore IR 38 kHz puo restare come backup software, ma
+non e piu necessario nell'installazione finale.
+
+## Soglia spegnimento
+
+La soglia di default e `600`. Rappresenta il punteggio sonno da raggiungere
+prima di comandare lo spegnimento. Il firmware aggiorna il punteggio circa una
+volta al secondo:
+
+- se sei nel letto e stabile, il punteggio sale;
+- se ti muovi molto, scende;
+- se esci dal letto o il sensore perde la presenza, si azzera.
+
+Con soglia `600`, in condizioni tranquille servono circa 10 minuti di stabilita.
+Valori piu bassi spengono prima, valori piu alti aspettano di piu.
 
 ## Note
 

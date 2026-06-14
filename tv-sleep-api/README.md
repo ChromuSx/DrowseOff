@@ -1,6 +1,8 @@
 # TV Sleep API
 
-Piccolo servizio locale per salvare su SQLite i dati inviati dall'ESP32 del progetto TV Sleep.
+Servizio locale per il progetto TV Sleep. Salva su SQLite i dati inviati
+dall'ESP32, mostra la dashboard e comanda il BroadLink RM Mini3 per spegnere la
+TV.
 
 Questa cartella fa parte del progetto:
 
@@ -17,6 +19,7 @@ app.py                  # entrypoint minimale
 tv_sleep/config.py      # percorsi e variabili ambiente
 tv_sleep/db.py          # SQLite e query
 tv_sleep/reports.py     # riepilogo sessione e serie grafico
+tv_sleep/broadlink_remote.py  # invio e apprendimento codici BroadLink
 tv_sleep/server.py      # HTTP server, routing API e static files
 templates/dashboard.html
 static/app.css
@@ -125,7 +128,27 @@ Export CSV comandi:
 http://192.168.1.196:8010/api/export/commands.csv
 ```
 
-Accodare un comando di spegnimento TV:
+Stato BroadLink:
+
+```text
+http://192.168.1.196:8010/api/broadlink/status
+```
+
+Probe BroadLink:
+
+```text
+http://192.168.1.196:8010/api/broadlink/probe
+```
+
+Inviare OFF via BroadLink:
+
+```bash
+curl -X POST http://localhost:8010/api/broadlink/send-off \
+  -H "Content-Type: application/json" \
+  -d '{"repeat_count":1,"source":"manuale"}'
+```
+
+Accodare un comando di spegnimento TV all'ESP32, solo fallback storico:
 
 ```bash
 curl -X POST http://localhost:8010/api/commands \
@@ -154,11 +177,17 @@ Le impostazioni includono anche:
 ```text
 auto_power_enabled=1   # spegnimento automatico attivo
 auto_power_enabled=0   # solo monitoraggio, nessuno spegnimento automatico
+sleep_threshold=600    # circa 10 minuti di stabilita in condizioni tranquille
 ```
 
 La dashboard mostra questa modalita in alto e nel tab Impostazioni. I comandi
-I comandi manuali di spegnimento TV restano disponibili anche quando lo
-spegnimento automatico e disattivato.
+manuali di spegnimento TV restano disponibili anche quando lo spegnimento
+automatico e disattivato.
+
+Il punteggio sonno sale circa una volta al secondo quando il sensore vede una
+persona stabile nel letto. Movimenti forti lo fanno scendere e l'uscita dal
+letto lo azzera. La soglia `600` quindi equivale indicativamente a 10 minuti di
+stabilita, non a un timer rigido.
 
 Le nuove letture inviate dal firmware includono anche `score_reason`, cioe il
 motivo leggibile del cambio punteggio, per esempio `+1 stabile e fermo` oppure
@@ -174,18 +203,42 @@ camera-tv-esp32
 Il primo upload con OTA abilitato va comunque fatto via USB. Dopo, quando
 l'ESP32 e il PC sono sulla stessa rete, puoi provare gli aggiornamenti via WiFi.
 
+## BroadLink
+
+Il BroadLink RM Mini3 e configurato in `docker-compose.yml`:
+
+```text
+BROADLINK_HOST=192.168.1.107
+BROADLINK_PACKET_PATH=/data/broadlink_tv_off.b64
+BROADLINK_AUTO_ENABLED=1
+```
+
+Il file `broadlink_tv_off.b64` contiene il codice IR OFF imparato dalla
+dashboard. Non va committato: resta nel volume `./data` insieme al database.
+
+Flusso di apprendimento dalla dashboard:
+
+1. Vai su `Comandi TV`.
+2. Premi `Avvia apprendimento`.
+3. Manda il comando OFF verso il BroadLink.
+4. Premi `Salva codice OFF`.
+
+Quando `packet_saved=true` e `ready=true`, il bottone `Spegni TV` usa BroadLink.
+Anche lo spegnimento automatico usa BroadLink quando l'ESP32 invia l'evento di
+soglia raggiunta.
+
 ## Home Assistant / MQTT
 
 Per ora l'integrazione piu semplice con Home Assistant e un REST command verso:
 
 ```text
-POST http://192.168.1.196:8010/api/commands
+POST http://192.168.1.196:8010/api/broadlink/send-off
 ```
 
 Payload:
 
 ```json
-{"command_type":"tv_power","repeat_count":1,"device_id":"camera-tv-esp32","source":"home-assistant"}
+{"repeat_count":1,"source":"home-assistant"}
 ```
 
 MQTT resta una buona evoluzione se vuoi portare altri sensori o automazioni sul

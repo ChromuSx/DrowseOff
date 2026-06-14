@@ -306,7 +306,7 @@ class Handler(BaseHTTPRequestHandler):
                             ),
                             "sleep_score": payload.get("sleep_score"),
                             "dist_filtered": payload.get("dist_filtered"),
-                            "note": note or "Comando POWER richiesto da dashboard",
+                            "note": note or "Comando spegnimento TV richiesto da dashboard",
                         }
                     )
 

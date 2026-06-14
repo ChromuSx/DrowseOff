@@ -125,7 +125,7 @@ Export CSV comandi:
 http://192.168.1.196:8010/api/export/commands.csv
 ```
 
-Accodare un comando POWER:
+Accodare un comando di spegnimento TV:
 
 ```bash
 curl -X POST http://localhost:8010/api/commands \
@@ -153,12 +153,12 @@ Le impostazioni includono anche:
 
 ```text
 auto_power_enabled=1   # spegnimento automatico attivo
-auto_power_enabled=0   # solo monitoraggio, nessun POWER automatico
+auto_power_enabled=0   # solo monitoraggio, nessuno spegnimento automatico
 ```
 
 La dashboard mostra questa modalita in alto e nel tab Impostazioni. I comandi
-POWER manuali restano disponibili anche quando lo spegnimento automatico e
-disattivato.
+I comandi manuali di spegnimento TV restano disponibili anche quando lo
+spegnimento automatico e disattivato.
 
 Le nuove letture inviate dal firmware includono anche `score_reason`, cioe il
 motivo leggibile del cambio punteggio, per esempio `+1 stabile e fermo` oppure

@@ -69,15 +69,15 @@ const formatRemaining = (value) => {
 const eventTypeLabel = (eventType) => {
   const labels = {
     tv_power_off_attempt: 'Tentativo spegnimento TV',
-    tv_power_manual: 'POWER inviato da dashboard',
-    tv_power_manual_failed: 'POWER dashboard fallito'
+    tv_power_manual: 'Spegnimento TV inviato da dashboard',
+    tv_power_manual_failed: 'Spegnimento TV dashboard fallito'
   };
   return labels[eventType] || eventType || '-';
 };
 
 const commandTypeLabel = (commandType) => {
   const labels = {
-    tv_power: 'POWER TV'
+    tv_power: 'Spegni TV'
   };
   return labels[commandType] || commandType || '-';
 };
@@ -209,7 +209,7 @@ function resetClearButton() {
 
 function resetPowerButton() {
   powerArmed = false;
-  powerTvButton.textContent = 'Invia POWER';
+  powerTvButton.textContent = 'Spegni TV';
   setRemoteAvailability(latestOnline);
 
   if (powerArmedTimer) {
@@ -258,14 +258,14 @@ async function queuePowerCommand(repeatCount = 1) {
 
 async function sendPowerCommand() {
   if (!latestOnline) {
-    setStatus('ESP32 offline: non accodo comandi POWER.');
+    setStatus('ESP32 offline: non accodo comandi di spegnimento TV.');
     return;
   }
 
   if (!powerArmed) {
     powerArmed = true;
-    powerTvButton.textContent = 'Conferma POWER';
-    setStatus('Premi di nuovo per accodare un comando POWER per la TV.');
+    powerTvButton.textContent = 'Conferma spegnimento';
+    setStatus('Premi di nuovo per accodare lo spegnimento della TV.');
 
     powerArmedTimer = setTimeout(() => {
       resetPowerButton();
@@ -275,28 +275,28 @@ async function sendPowerCommand() {
   }
 
   powerTvButton.disabled = true;
-  setStatus('Comando POWER in coda...');
+  setStatus('Spegnimento TV in coda...');
 
   try {
     const result = await queuePowerCommand(1);
     await refresh();
-    setStatus(`Comando POWER accodato (#${result.id}). L'ESP32 lo ritira al prossimo controllo.`);
+    setStatus(`Spegnimento TV accodato (#${result.id}). L'ESP32 lo ritira al prossimo controllo.`);
   } catch (error) {
-    setStatus(`Errore comando POWER: ${error.message}`);
+    setStatus(`Errore spegnimento TV: ${error.message}`);
   } finally {
     resetPowerButton();
   }
 }
 
 async function sendPowerTest(repeatCount) {
-  setStatus(`Accodo test POWER x${repeatCount}...`);
+  setStatus(`Accodo test OFF TV x${repeatCount}...`);
 
   try {
     const result = await queuePowerCommand(repeatCount);
     await refresh();
-    setStatus(`Test POWER x${repeatCount} accodato (#${result.id}).`);
+    setStatus(`Test OFF TV x${repeatCount} accodato (#${result.id}).`);
   } catch (error) {
-    setStatus(`Errore test POWER: ${error.message}`);
+    setStatus(`Errore test OFF TV: ${error.message}`);
   }
 }
 
@@ -398,7 +398,7 @@ function renderHero(summary, session, settings) {
     badge.className = 'status-pill warn';
     badge.textContent = 'Soglia raggiunta';
     title.textContent = 'La sessione sembra da spegnimento, ma sei in solo monitoraggio';
-    detail.textContent = `Il punteggio ha raggiunto ${score}/${threshold}. Nessun POWER automatico viene inviato in questa modalita.`;
+    detail.textContent = `Il punteggio ha raggiunto ${score}/${threshold}. Nessuno spegnimento automatico viene inviato in questa modalita.`;
   } else if (score >= threshold && threshold > 0) {
     badge.className = 'status-pill warn';
     badge.textContent = 'Da verificare';

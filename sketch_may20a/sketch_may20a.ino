@@ -367,7 +367,7 @@ bool controllaComandiServer(int distanzaFiltrata) {
 
   inviaPowerTv(repeatCount);
   tvGiaSpenta = true;
-  completaComandoServer(commandId, "done", distanzaFiltrata, "POWER inviato dall ESP32");
+  completaComandoServer(commandId, "done", distanzaFiltrata, "Spegnimento TV inviato dall ESP32");
 
   return true;
 }
@@ -716,7 +716,7 @@ void loop() {
   Serial.print(motivoPunteggio);
 
   if (comandoDashboardThisLoop) {
-    Serial.print(" | POWER DASHBOARD");
+    Serial.print(" | SPEGNI TV DASHBOARD");
   }
 
   if (punteggioSonno >= punteggioSpegnimento && !tvGiaSpenta && autoSpegnimentoAttivo) {

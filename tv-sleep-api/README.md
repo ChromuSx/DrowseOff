@@ -31,7 +31,7 @@ Then adjust the values for your home network:
 
 ```env
 TZ=UTC
-TV_SLEEP_PORT=8010
+TV_SLEEP_HOST_PORT=8010
 TV_SLEEP_DB=/data/tv_sleep.db
 TV_SLEEP_API_TOKEN=
 DEFAULT_SENSOR_DEVICE_ID=tv-sleep-sensor

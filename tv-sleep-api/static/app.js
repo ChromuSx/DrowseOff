@@ -15,7 +15,7 @@ const formatTime = (value) => {
   if (!value) return '-';
 
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  if (Number.isNaN(date.getTime())) return '-';
 
   return date.toLocaleString(USER_LOCALE, {
     day: '2-digit',
@@ -31,7 +31,7 @@ const formatShortTime = (value) => {
   if (!value) return '-';
 
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  if (Number.isNaN(date.getTime())) return '-';
 
   return date.toLocaleString(USER_LOCALE, {
     day: '2-digit',
@@ -303,7 +303,7 @@ function selectChartMode(mode) {
 function resetClearButton() {
   clearArmed = false;
   clearDataButton.disabled = false;
-  clearDataButton.textContent = 'Clear readings';
+  clearDataButton.textContent = 'Clear all data';
 
   if (clearArmedTimer) {
     clearTimeout(clearArmedTimer);

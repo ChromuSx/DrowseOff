@@ -1,5 +1,5 @@
 # Local secrets
-sketch_may20a/secrets.h
+firmware/*/secrets.h
 .env
 .env.*
 !.env.example

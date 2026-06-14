@@ -29,8 +29,8 @@ LD2410C + ESP32 near the bed
 ## Project Structure
 
 ```text
-sketch_may20a/     ESP32 Arduino firmware
-tv-sleep-api/      Python API, web dashboard, and SQLite storage
+firmware/esp32_sleep_sensor/   ESP32 Arduino firmware
+tv-sleep-api/                  Python API, web dashboard, and SQLite storage
 ```
 
 ## Local Secrets
@@ -38,16 +38,17 @@ tv-sleep-api/      Python API, web dashboard, and SQLite storage
 The Arduino sketch reads Wi-Fi and server settings from:
 
 ```text
-sketch_may20a/secrets.h
+firmware/esp32_sleep_sensor/secrets.h
 ```
 
 That file is ignored by Git. Create it from the example:
 
 ```text
-cp sketch_may20a/secrets.example.h sketch_may20a/secrets.h
+cp firmware/esp32_sleep_sensor/secrets.example.h firmware/esp32_sleep_sensor/secrets.h
 ```
 
 Then set your real Wi-Fi name, Wi-Fi password, device ID, and server URL.
+Open `firmware/esp32_sleep_sensor/esp32_sleep_sensor.ino` from the Arduino IDE.
 
 The server reads local deployment settings from:
 

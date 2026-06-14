@@ -70,7 +70,10 @@ const eventTypeLabel = (eventType) => {
   const labels = {
     tv_power_off_attempt: 'Tentativo spegnimento TV',
     tv_power_manual: 'Spegnimento TV inviato da dashboard',
-    tv_power_manual_failed: 'Spegnimento TV dashboard fallito'
+    tv_power_manual_failed: 'Spegnimento TV dashboard fallito',
+    tv_power_broadlink_auto: 'Spegnimento TV via BroadLink',
+    tv_power_broadlink_manual: 'Spegnimento TV BroadLink dashboard',
+    tv_power_broadlink_failed: 'BroadLink fallito'
   };
   return labels[eventType] || eventType || '-';
 };
@@ -85,7 +88,7 @@ const commandTypeLabel = (commandType) => {
 const commandStatusLabel = (status) => {
   const labels = {
     pending: 'In attesa',
-    claimed: 'Preso da ESP32',
+    claimed: 'In esecuzione',
     done: 'Completato',
     failed: 'Fallito',
     expired: 'Scaduto',
@@ -126,10 +129,13 @@ const chartTitle = document.getElementById('chartTitle');
 const calibrationStartButton = document.getElementById('calibrationStartButton');
 const calibrationNextButton = document.getElementById('calibrationNextButton');
 const calibrationApplyButton = document.getElementById('calibrationApplyButton');
+const broadlinkLearnStartButton = document.getElementById('broadlinkLearnStartButton');
+const broadlinkLearnCheckButton = document.getElementById('broadlinkLearnCheckButton');
 
 let latestSeries = [];
 let latestSession = {};
 let latestSettings = {};
+let latestBroadlink = {};
 let latestCalibration = {};
 let latestReadings = [];
 let latestOnline = false;
@@ -220,18 +226,37 @@ function resetPowerButton() {
 
 function setRemoteAvailability(online) {
   latestOnline = online;
-  const disabled = !online;
+  const broadlinkReady = Boolean(latestBroadlink.ready);
+  const disabled = !online && !broadlinkReady;
   powerTvButton.disabled = disabled;
   powerRepeatButtons.forEach((button) => {
     button.disabled = disabled;
   });
 
-  document.getElementById('remoteStatus').textContent = online
-    ? 'ESP32 online'
-    : 'ESP32 offline';
+  document.getElementById('remoteStatus').textContent = broadlinkReady
+    ? 'BroadLink pronto'
+    : (online ? 'ESP32 online' : 'Telecomando offline');
 }
 
 async function queuePowerCommand(repeatCount = 1) {
+  if (latestBroadlink.ready) {
+    const response = await fetch('/api/broadlink/send-off', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repeat_count: repeatCount,
+        source: 'dashboard'
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || 'BroadLink non ha inviato il comando');
+    }
+
+    return result;
+  }
+
   if (!latestOnline) {
     throw new Error('ESP32 offline: comando non accodato');
   }
@@ -257,8 +282,8 @@ async function queuePowerCommand(repeatCount = 1) {
 }
 
 async function sendPowerCommand() {
-  if (!latestOnline) {
-    setStatus('ESP32 offline: non accodo comandi di spegnimento TV.');
+  if (!latestOnline && !latestBroadlink.ready) {
+    setStatus('Nessun telecomando pronto: ESP32 offline e BroadLink non configurato.');
     return;
   }
 
@@ -275,12 +300,15 @@ async function sendPowerCommand() {
   }
 
   powerTvButton.disabled = true;
-  setStatus('Spegnimento TV in coda...');
+  const usingBroadlink = Boolean(latestBroadlink.ready);
+  setStatus(usingBroadlink ? 'Invio spegnimento TV via BroadLink...' : 'Spegnimento TV in coda...');
 
   try {
     const result = await queuePowerCommand(1);
     await refresh();
-    setStatus(`Spegnimento TV accodato (#${result.id}). L'ESP32 lo ritira al prossimo controllo.`);
+    setStatus(usingBroadlink
+      ? `Spegnimento TV inviato via BroadLink (#${result.id}).`
+      : `Spegnimento TV accodato (#${result.id}). L'ESP32 lo ritira al prossimo controllo.`);
   } catch (error) {
     setStatus(`Errore spegnimento TV: ${error.message}`);
   } finally {
@@ -289,12 +317,16 @@ async function sendPowerCommand() {
 }
 
 async function sendPowerTest(repeatCount) {
-  setStatus(`Accodo test OFF TV x${repeatCount}...`);
+  setStatus(latestBroadlink.ready
+    ? `Invio test BroadLink OFF x${repeatCount}...`
+    : `Accodo test ESP32 OFF x${repeatCount}...`);
 
   try {
     const result = await queuePowerCommand(repeatCount);
     await refresh();
-    setStatus(`Test OFF TV x${repeatCount} accodato (#${result.id}).`);
+    setStatus(latestBroadlink.ready
+      ? `Test BroadLink OFF x${repeatCount} inviato (#${result.id}).`
+      : `Test ESP32 OFF x${repeatCount} accodato (#${result.id}).`);
   } catch (error) {
     setStatus(`Errore test OFF TV: ${error.message}`);
   }
@@ -510,6 +542,67 @@ function renderSettings(settings) {
 
   document.getElementById('settingsUpdated').textContent =
     latestSettings.updated_at ? `Aggiornate ${formatTime(latestSettings.updated_at)}` : 'Valori default';
+}
+
+function renderBroadlinkStatus(status) {
+  latestBroadlink = status || {};
+  const statusLabel = document.getElementById('broadlinkStatus');
+  const detail = document.getElementById('broadlinkDetail');
+
+  if (!latestBroadlink.library_ready) {
+    statusLabel.innerHTML = '<span class="bad">Libreria assente</span>';
+    detail.textContent = latestBroadlink.library_error || 'BroadLink non disponibile.';
+  } else if (latestBroadlink.ready) {
+    statusLabel.innerHTML = '<span class="ok">Pronto</span>';
+    detail.textContent = `${latestBroadlink.host} - codice OFF salvato`;
+  } else if (latestBroadlink.host) {
+    statusLabel.innerHTML = '<span class="warn">Da imparare</span>';
+    detail.textContent = `${latestBroadlink.host} - codice OFF non salvato`;
+  } else {
+    statusLabel.innerHTML = '<span class="bad">Non configurato</span>';
+    detail.textContent = 'IP BroadLink mancante.';
+  }
+}
+
+async function startBroadlinkLearning() {
+  broadlinkLearnStartButton.disabled = true;
+  setStatus('BroadLink in apprendimento...');
+
+  try {
+    const response = await fetch('/api/broadlink/learn/start', { method: 'POST' });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || 'Apprendimento non avviato');
+    }
+
+    renderBroadlinkStatus(result);
+    setStatus('Ora invia OFF x3 dall ESP32 verso il BroadLink, poi premi Salva codice OFF.');
+  } catch (error) {
+    setStatus(`Errore BroadLink: ${error.message}`);
+  } finally {
+    broadlinkLearnStartButton.disabled = false;
+  }
+}
+
+async function checkBroadlinkLearning() {
+  broadlinkLearnCheckButton.disabled = true;
+  setStatus('Controllo codice OFF ricevuto...');
+
+  try {
+    const response = await fetch('/api/broadlink/learn/check', { method: 'POST' });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || 'Codice OFF non ricevuto');
+    }
+
+    renderBroadlinkStatus(result);
+    await refresh();
+    setStatus(`Codice OFF BroadLink salvato (${result.bytes} byte).`);
+  } catch (error) {
+    setStatus(`Errore apprendimento BroadLink: ${error.message}`);
+  } finally {
+    broadlinkLearnCheckButton.disabled = false;
+  }
 }
 
 async function postSettings(payload) {
@@ -905,9 +998,10 @@ function renderReadings(readings) {
 }
 
 async function refresh() {
-  const [summary, settings, sessionSummary, calibration, session, series, events, commands, readings] = await Promise.all([
+  const [summary, settings, broadlink, sessionSummary, calibration, session, series, events, commands, readings] = await Promise.all([
     fetch('/api/summary').then((response) => response.json()),
     fetch('/api/settings').then((response) => response.json()),
+    fetch('/api/broadlink/status').then((response) => response.json()),
     fetch('/api/session-summary').then((response) => response.json()),
     fetch('/api/calibration').then((response) => response.json()),
     fetch('/api/session').then((response) => response.json()),
@@ -921,6 +1015,7 @@ async function refresh() {
   latestReadings = readings;
 
   renderSettings(settings);
+  renderBroadlinkStatus(broadlink);
   renderHero(summary, session, settings);
   renderSummaryCards(summary, session, settings);
   renderSessionSummary(sessionSummary);
@@ -970,6 +1065,8 @@ clearDataButton.addEventListener('click', clearData);
 calibrationStartButton.addEventListener('click', startCalibrationWizard);
 calibrationNextButton.addEventListener('click', nextCalibrationStep);
 calibrationApplyButton.addEventListener('click', applyCalibrationRange);
+broadlinkLearnStartButton.addEventListener('click', startBroadlinkLearning);
+broadlinkLearnCheckButton.addEventListener('click', checkBroadlinkLearning);
 document.getElementById('commandRows').addEventListener('click', (event) => {
   const button = event.target.closest('[data-cancel-command]');
   if (!button) return;

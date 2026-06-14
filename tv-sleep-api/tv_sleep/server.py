@@ -30,6 +30,15 @@ from .db import (
     insert_reading,
     update_settings,
 )
+from .broadlink_remote import (
+    BROADLINK_AUTO_ENABLED,
+    BroadlinkError,
+    broadlink_probe,
+    broadlink_status,
+    check_learning,
+    send_tv_off,
+    start_learning,
+)
 from .reports import (
     get_calibration_report,
     get_morning_report,
@@ -66,6 +75,35 @@ def command_payload(command):
         "claimed_at": command["claimed_at"],
         "expires_at": command.get("expires_at"),
     }
+
+
+def try_send_broadlink_auto(payload):
+    if not BROADLINK_AUTO_ENABLED:
+        return
+
+    try:
+        result = send_tv_off(1)
+        insert_event(
+            {
+                "device_id": "broadlink-rmmini",
+                "event_type": "tv_power_broadlink_auto",
+                "sleep_score": payload.get("sleep_score"),
+                "dist_filtered": payload.get("dist_filtered"),
+                "note": f"BroadLink OFF automatico inviato x{result['repeat_count']}",
+            }
+        )
+    except BroadlinkError:
+        return
+    except Exception as exc:
+        insert_event(
+            {
+                "device_id": "broadlink-rmmini",
+                "event_type": "tv_power_broadlink_failed",
+                "sleep_score": payload.get("sleep_score"),
+                "dist_filtered": payload.get("dist_filtered"),
+                "note": f"Errore BroadLink automatico: {exc}",
+            }
+        )
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -188,6 +226,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, get_settings())
             return
 
+        if parsed.path == "/api/broadlink/status":
+            self.send_json(200, broadlink_status())
+            return
+
+        if parsed.path == "/api/broadlink/probe":
+            self.send_json(200, broadlink_probe())
+            return
+
         if parsed.path == "/api/export/readings.csv":
             self.send_csv(
                 "tv-sleep-readings.csv",
@@ -256,6 +302,8 @@ class Handler(BaseHTTPRequestHandler):
 
             if parsed.path == "/api/events":
                 event_id = insert_event(payload)
+                if payload.get("event_type") == "tv_power_off_attempt":
+                    try_send_broadlink_auto(payload)
                 self.send_json(201, {"ok": True, "id": event_id})
                 return
 
@@ -273,6 +321,53 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 )
                 self.send_json(201, {"ok": True, "id": command_id})
+                return
+
+            if parsed.path == "/api/broadlink/learn/start":
+                self.send_json(200, {"ok": True, **start_learning()})
+                return
+
+            if parsed.path == "/api/broadlink/learn/check":
+                self.send_json(200, {"ok": True, **check_learning()})
+                return
+
+            if parsed.path == "/api/broadlink/send-off":
+                repeat_count = int(payload.get("repeat_count") or 1)
+                command_id = create_command(
+                    {
+                        "device_id": "broadlink-rmmini",
+                        "command_type": "tv_power",
+                        "repeat_count": repeat_count,
+                        "source": payload.get("source") or "dashboard-broadlink",
+                        "note": "Richiesto dalla dashboard via BroadLink",
+                    }
+                )
+
+                try:
+                    result = send_tv_off(repeat_count)
+                    complete_command(
+                        command_id,
+                        "done",
+                        f"BroadLink OFF inviato x{result['repeat_count']}",
+                    )
+                    insert_event(
+                        {
+                            "device_id": "broadlink-rmmini",
+                            "event_type": "tv_power_broadlink_manual",
+                            "note": f"BroadLink OFF manuale inviato x{result['repeat_count']}",
+                        }
+                    )
+                    self.send_json(200, {"ok": True, "id": command_id, **result})
+                except Exception as exc:
+                    complete_command(command_id, "failed", str(exc))
+                    insert_event(
+                        {
+                            "device_id": "broadlink-rmmini",
+                            "event_type": "tv_power_broadlink_failed",
+                            "note": f"Errore BroadLink manuale: {exc}",
+                        }
+                    )
+                    raise
                 return
 
             if parsed.path == "/api/commands/cancel":

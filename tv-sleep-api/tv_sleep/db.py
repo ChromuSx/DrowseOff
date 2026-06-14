@@ -555,7 +555,11 @@ def cancel_command(command_id):
 def get_last_power_event(start=None, end=None):
     query = """
         SELECT * FROM events
-        WHERE event_type = 'tv_power_off_attempt'
+        WHERE event_type IN (
+            'tv_power_off_attempt',
+            'tv_power_broadlink_auto',
+            'tv_power_broadlink_manual'
+        )
     """
     params = []
 

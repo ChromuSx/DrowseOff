@@ -77,6 +77,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   min-width: 320px;
   margin: 0;
@@ -254,6 +258,61 @@ select:focus-visible {
   color: var(--muted);
   font-family: var(--mono);
   font-size: 12px;
+}
+
+.token-gate {
+  display: grid;
+  min-height: calc(100vh - 84px);
+  place-items: start center;
+  padding: 44px 14px;
+}
+
+.token-panel {
+  width: min(560px, 100%);
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.token-panel .report-text {
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.token-form {
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.token-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.token-form label span {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.token-form input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--panel-2);
+  color: var(--text);
+  padding: 0 10px;
+}
+
+.token-help {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .ops-layout {

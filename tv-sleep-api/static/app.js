@@ -135,6 +135,12 @@ const powerTvButton = document.getElementById('powerTvButton');
 const powerRepeatButtons = Array.from(document.querySelectorAll('[data-power-repeat]'));
 const exportLinks = Array.from(document.querySelectorAll('[data-export-url]'));
 const apiTokenButton = document.getElementById('apiTokenButton');
+const tokenGate = document.getElementById('tokenGate');
+const tokenGateForm = document.getElementById('tokenGateForm');
+const tokenGateInput = document.getElementById('tokenGateInput');
+const tokenGateMessage = document.getElementById('tokenGateMessage');
+const tokenGateClearButton = document.getElementById('tokenGateClearButton');
+const dashboardLayout = document.getElementById('dashboardLayout');
 const clearDataButton = document.getElementById('clearDataButton');
 const settingsForm = document.getElementById('settingsForm');
 const autoModeToggle = document.getElementById('autoModeToggle');
@@ -200,12 +206,31 @@ function setStatus(message) {
   statusMessage.textContent = message || '';
 }
 
+class ApiAuthError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ApiAuthError';
+  }
+}
+
 function apiToken() {
   return (
     localStorage.getItem(API_TOKEN_STORAGE_KEY) ||
     localStorage.getItem(LEGACY_API_TOKEN_STORAGE_KEY) ||
     ''
   );
+}
+
+function saveApiToken(token) {
+  const nextToken = token.trim();
+
+  if (nextToken) {
+    localStorage.setItem(API_TOKEN_STORAGE_KEY, nextToken);
+    localStorage.removeItem(LEGACY_API_TOKEN_STORAGE_KEY);
+  } else {
+    localStorage.removeItem(API_TOKEN_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_API_TOKEN_STORAGE_KEY);
+  }
 }
 
 function authHeaders(headers = {}) {
@@ -220,7 +245,10 @@ async function apiFetch(url, options = {}) {
   });
 
   if (response.status === 401) {
-    throw new Error('API token required or invalid. Use the API Token button.');
+    const message = apiToken()
+      ? 'The saved API token was rejected. Paste the current token to continue.'
+      : 'Paste the API token for this DrowseOff server to load the dashboard.';
+    throw new ApiAuthError(message);
   }
 
   return response;
@@ -238,27 +266,56 @@ async function apiJson(url, options = {}) {
 }
 
 function configureApiToken() {
-  const current = apiToken();
-  const value = window.prompt('API token. Leave empty to clear it from this browser.', current);
+  showTokenGate('Paste a new API token or clear the saved one from this browser.');
+}
 
-  if (value === null) {
+function showTokenGate(message) {
+  tokenGate.hidden = false;
+  dashboardLayout.hidden = true;
+  tokenGateMessage.textContent = message || 'Paste the API token for this DrowseOff server. It is saved only in this browser.';
+  tokenGateInput.value = '';
+  setPill('topbarApiState', apiToken() ? 'token rejected' : 'token required', 'warn');
+  setStatus('API authorization is required before loading dashboard data.');
+  tokenGateInput.focus();
+}
+
+function hideTokenGate() {
+  tokenGate.hidden = true;
+  dashboardLayout.hidden = false;
+}
+
+function handleRefreshError(error, prefix = 'Dashboard refresh error') {
+  if (error instanceof ApiAuthError) {
+    showTokenGate(error.message);
     return;
   }
 
-  const nextToken = value.trim();
-  if (nextToken) {
-    localStorage.setItem(API_TOKEN_STORAGE_KEY, nextToken);
-    localStorage.removeItem(LEGACY_API_TOKEN_STORAGE_KEY);
-    setStatus('API token saved in this browser.');
-  } else {
-    localStorage.removeItem(API_TOKEN_STORAGE_KEY);
-    localStorage.removeItem(LEGACY_API_TOKEN_STORAGE_KEY);
-    setStatus('API token cleared from this browser.');
+  setStatus(`${prefix}: ${error.message}`);
+}
+
+async function submitTokenGate(event) {
+  event.preventDefault();
+  const nextToken = tokenGateInput.value.trim();
+
+  if (!nextToken) {
+    tokenGateMessage.textContent = 'Paste a token before saving.';
+    tokenGateInput.focus();
+    return;
   }
 
-  refresh().catch((error) => {
-    setStatus(`Dashboard refresh error: ${error.message}`);
-  });
+  saveApiToken(nextToken);
+  setStatus('API token saved in this browser. Loading dashboard...');
+
+  try {
+    await refresh();
+  } catch (error) {
+    handleRefreshError(error, 'Dashboard load error');
+  }
+}
+
+function clearSavedToken() {
+  saveApiToken('');
+  showTokenGate('Saved token cleared. Paste the API token for this server to continue.');
 }
 
 function filenameFromResponse(response, fallback) {
@@ -1206,6 +1263,11 @@ async function refresh() {
   renderReadings(readings);
   setRemoteAvailability(latestOnline);
   renderOperationsRail(summary, settings, remote, session);
+  const wasAuthBlocked = !tokenGate.hidden;
+  hideTokenGate();
+  if (wasAuthBlocked) {
+    setStatus('');
+  }
 }
 
 themeButtons.forEach((button) => {
@@ -1233,6 +1295,8 @@ systemTheme.addEventListener('change', () => {
 });
 
 apiTokenButton.addEventListener('click', configureApiToken);
+tokenGateForm.addEventListener('submit', submitTokenGate);
+tokenGateClearButton.addEventListener('click', clearSavedToken);
 exportLinks.forEach((link) => {
   link.addEventListener('click', downloadExport);
 });
@@ -1279,10 +1343,14 @@ chartModeButtons.forEach((button) => {
 });
 updateCalibrationWizard();
 refresh().catch((error) => {
-  setStatus(`Dashboard load error: ${error.message}`);
+  handleRefreshError(error, 'Dashboard load error');
 });
 setInterval(() => {
+  if (!tokenGate.hidden) {
+    return;
+  }
+
   refresh().catch((error) => {
-    setStatus(`Dashboard refresh error: ${error.message}`);
+    handleRefreshError(error, 'Dashboard refresh error');
   });
 }, 10000);

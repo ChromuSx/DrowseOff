@@ -44,7 +44,34 @@
 
     <div class="status-message" id="statusMessage" role="status" aria-live="polite"></div>
 
-    <div class="ops-layout">
+    <section class="token-gate" id="tokenGate" hidden>
+      <div class="token-panel">
+        <div class="panel-head">
+          <div>
+            <strong>API token required</strong>
+            <span>local browser authorization</span>
+          </div>
+        </div>
+        <p class="report-text" id="tokenGateMessage">
+          Paste the API token for this DrowseOff server. It is saved only in this browser.
+        </p>
+        <form class="token-form" id="tokenGateForm">
+          <label>
+            <span>API token</span>
+            <input id="tokenGateInput" type="password" autocomplete="current-password" placeholder="Paste API token">
+          </label>
+          <div class="button-row">
+            <button class="secondary-button" type="submit">Save token</button>
+            <button class="danger-button" type="button" id="tokenGateClearButton">Clear saved token</button>
+          </div>
+        </form>
+        <div class="token-help">
+          The token is not bundled with the public dashboard. Copy it from your local deployment notes or generate one on the server.
+        </div>
+      </div>
+    </section>
+
+    <div class="ops-layout" id="dashboardLayout">
       <aside class="sidebar" aria-label="Primary navigation">
         <nav class="tabbar" aria-label="Dashboard sections">
           <button class="tab-button" type="button" data-tab-target="overview">Overview <span>live</span></button>

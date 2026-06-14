@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>TV Sleep Monitor</title>
+  <script>
+    (() => {
+      const savedTheme = localStorage.getItem('tvSleepTheme');
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        document.documentElement.dataset.theme = savedTheme;
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="/static/app.css">
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>TV Sleep Monitor</h1>
+      <p class="page-subtitle">Stato notte, sensore, comandi TV e calibrazione in un posto solo.</p>
+    </div>
+    <div class="header-actions">
+      <div class="theme-switch" role="group" aria-label="Tema dashboard">
+        <button class="theme-option" type="button" data-theme-option="system">Sistema</button>
+        <button class="theme-option" type="button" data-theme-option="light">Chiaro</button>
+        <button class="theme-option" type="button" data-theme-option="dark">Scuro</button>
+      </div>
+      <a class="secondary-button" href="/api/export/readings.csv" download>CSV letture</a>
+    </div>
+  </header>
+
+  <div class="status-message" id="statusMessage" role="status" aria-live="polite"></div>
+
+  <section class="hero-status" aria-label="Stato principale">
+    <div class="verdict-card">
+      <div class="verdict-kicker">
+        <span class="status-pill" id="verdictBadge">-</span>
+        <span id="autoModePill" class="status-pill neutral">-</span>
+      </div>
+      <h2 id="verdictTitle">Caricamento dati...</h2>
+      <p id="verdictDetail">Attendo le ultime letture dall'ESP32.</p>
+      <div class="score-progress" aria-label="Avanzamento punteggio rispetto alla soglia">
+        <div class="score-progress-fill" id="scoreProgressFill"></div>
+      </div>
+      <div class="score-progress-label" id="scoreProgressLabel">-</div>
+    </div>
+
+    <div class="status-stack">
+      <div class="status-tile">
+        <span>ESP32</span>
+        <strong id="deviceState">-</strong>
+      </div>
+      <div class="status-tile">
+        <span>Ultima lettura</span>
+        <strong id="lastSeenLabel">-</strong>
+      </div>
+      <div class="status-tile">
+        <span>Comandi pendenti</span>
+        <strong id="pendingCommandsLabel">-</strong>
+      </div>
+    </div>
+  </section>
+
+  <nav class="tabbar" aria-label="Sezioni dashboard">
+    <button class="tab-button" type="button" data-tab-target="overview">Panoramica</button>
+    <button class="tab-button" type="button" data-tab-target="night">Notte</button>
+    <button class="tab-button" type="button" data-tab-target="calibration">Calibrazione</button>
+    <button class="tab-button" type="button" data-tab-target="commands">Comandi TV</button>
+    <button class="tab-button" type="button" data-tab-target="settings">Impostazioni</button>
+    <button class="tab-button" type="button" data-tab-target="data">Dati</button>
+  </nav>
+
+  <main>
+    <section class="tab-panel" data-tab-panel="overview">
+      <div class="grid" id="cards"></div>
+
+      <div class="two-column">
+        <div class="card" id="morningReportCard">
+          <div class="section-title compact-title">
+            <strong>Report mattina</strong>
+            <span class="section-note" id="morningWindow">-</span>
+          </div>
+          <p class="report-text" id="morningSummary">-</p>
+          <div class="mini-metrics" id="morningMetrics"></div>
+        </div>
+
+        <div class="card insight-card">
+          <div class="section-title compact-title">
+            <strong>Perche cambia il punteggio</strong>
+            <span class="section-note">Ultima lettura utile</span>
+          </div>
+          <p class="report-text" id="scoreReasonText">-</p>
+          <div class="mini-metrics" id="latestReasonMetrics"></div>
+        </div>
+      </div>
+
+      <div class="card chart-card">
+        <div class="chart-header">
+          <div>
+            <strong id="chartTitle">Punteggio sonno</strong>
+            <span class="chart-caption" id="chartCaption">-</span>
+          </div>
+          <div class="segmented-control" role="group" aria-label="Tipo grafico">
+            <button class="segment-button" type="button" data-chart-mode="score">Punteggio</button>
+            <button class="segment-button" type="button" data-chart-mode="distance">Distanza</button>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas class="chart" id="sleepChart" aria-label="Grafico notte"></canvas>
+        </div>
+        <div class="legend-row">
+          <span><i class="legend-dot accent"></i>Linea principale</span>
+          <span><i class="legend-dot soft"></i>Nel letto</span>
+          <span><i class="legend-dot bad"></i>POWER</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="night">
+      <div class="section-title">
+        <strong>Ultima notte</strong>
+        <span class="section-note" id="nightWindow">-</span>
+      </div>
+      <div class="grid" id="nightCards"></div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="calibration">
+      <div class="two-column calibration-layout">
+        <div class="card wizard-card">
+          <div class="section-title compact-title">
+            <strong>Wizard calibrazione</strong>
+            <span class="section-note">Guidato</span>
+          </div>
+          <div class="wizard-step" id="calibrationStepTitle">Pronto</div>
+          <p class="report-text" id="calibrationStepDetail">Sdraiati nel letto, poi avvia una sessione guidata. Alla fine potrai applicare il range consigliato.</p>
+          <div class="wizard-timer" id="calibrationTimer">--</div>
+          <div class="button-row">
+            <button class="secondary-button" type="button" id="calibrationStartButton">Avvia</button>
+            <button class="secondary-button" type="button" id="calibrationNextButton" disabled>Passo successivo</button>
+            <button class="power-button" type="button" id="calibrationApplyButton" disabled>Applica range</button>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-title">
+            <strong>Calibrazione</strong>
+            <span class="section-note">Distanze filtrate rilevate nel letto</span>
+          </div>
+          <div class="grid compact-grid" id="calibrationCards"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="commands">
+      <div class="control-grid">
+        <div class="card">
+          <div class="section-title compact-title">
+            <strong>Telecomando</strong>
+            <span class="section-note" id="remoteStatus">-</span>
+          </div>
+          <button class="power-button main-power" type="button" id="powerTvButton">Invia POWER</button>
+          <div class="button-row remote-tests">
+            <button class="power-button" type="button" data-power-repeat="1">POWER x1</button>
+            <button class="power-button" type="button" data-power-repeat="2">POWER x2</button>
+            <button class="power-button" type="button" data-power-repeat="3">POWER x3</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="section-title compact-title">
+            <strong>Comandi manuali</strong>
+            <span class="section-note">Richieste inviate all'ESP32</span>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ora</th>
+                  <th>Comando</th>
+                  <th>Stato</th>
+                  <th>Scadenza</th>
+                  <th>Azione</th>
+                </tr>
+              </thead>
+              <tbody id="commandRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="settings">
+      <div class="section-title">
+        <strong>Impostazioni</strong>
+        <span class="section-note" id="settingsUpdated">-</span>
+      </div>
+
+      <div class="card mode-card">
+        <div>
+          <strong>Spegnimento automatico</strong>
+          <p class="report-text">Quando e disattivato, l'ESP32 continua a registrare tutto ma non spegne la TV da solo.</p>
+        </div>
+        <label class="toggle">
+          <input id="autoModeToggle" type="checkbox">
+          <span class="toggle-track"></span>
+          <strong id="autoModeLabel">-</strong>
+        </label>
+      </div>
+
+      <form class="settings-form" id="settingsForm">
+        <fieldset>
+          <legend>Quando spegnere</legend>
+          <label>
+            <span>Soglia spegnimento</span>
+            <input id="settingSleepThreshold" name="sleep_threshold" type="number" min="30" max="3600" step="10">
+          </label>
+          <label>
+            <span>Fuori letto tollerato</span>
+            <input id="settingOutOfBedLimit" name="out_of_bed_limit" type="number" min="1" max="60" step="1">
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Dove si trova il letto</legend>
+          <label>
+            <span>Distanza min letto</span>
+            <input id="settingDistanceMin" name="distance_min_cm" type="number" min="20" max="400" step="1">
+          </label>
+          <label>
+            <span>Distanza max letto</span>
+            <input id="settingDistanceMax" name="distance_max_cm" type="number" min="30" max="600" step="1">
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Movimento</legend>
+          <label>
+            <span>Cambio tranquillo</span>
+            <input id="settingQuietDistance" name="distance_quiet_cm" type="number" min="1" max="120" step="1">
+          </label>
+          <label>
+            <span>Cambio forte</span>
+            <input id="settingStrongDistance" name="distance_strong_cm" type="number" min="5" max="200" step="1">
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Telecomando</legend>
+          <label>
+            <span>Ripetizioni IR</span>
+            <input id="settingIrRepeats" name="ir_repeats" type="number" min="0" max="5" step="1">
+          </label>
+          <label>
+            <span>Scadenza comandi</span>
+            <input id="settingCommandTtl" name="command_ttl_seconds" type="number" min="15" max="900" step="15">
+          </label>
+        </fieldset>
+
+        <div class="form-actions">
+          <button class="secondary-button" type="submit">Salva impostazioni</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="data">
+      <div class="data-actions">
+        <a class="secondary-button" href="/api/export/readings.csv" download>CSV letture</a>
+        <a class="secondary-button" href="/api/export/events.csv" download>CSV eventi</a>
+        <a class="secondary-button" href="/api/export/commands.csv" download>CSV comandi</a>
+        <button class="danger-button" type="button" id="clearDataButton">Svuota letture</button>
+      </div>
+
+      <section class="dashboard-section">
+        <div class="section-title">
+          <strong>Eventi recenti</strong>
+          <span class="section-note">Tentativi TV e altri eventi salvati</span>
+        </div>
+        <div class="card">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ora</th>
+                  <th>Evento</th>
+                  <th>Punteggio</th>
+                  <th>Distanza</th>
+                  <th>Nota</th>
+                </tr>
+              </thead>
+              <tbody id="eventRows"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <div class="card">
+        <strong>Ultime letture</strong>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Ora</th>
+                <th>Radar</th>
+                <th>Letto</th>
+                <th>Stabile</th>
+                <th>Raw</th>
+                <th>Filtrata</th>
+                <th>Punteggio</th>
+                <th>Motivo</th>
+                <th>TV</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

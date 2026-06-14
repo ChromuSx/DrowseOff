@@ -1,0 +1,27 @@
+# Local secrets
+sketch_may20a/secrets.h
+.env
+.env.*
+
+# Runtime data
+tv-sleep-api/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Arduino / build outputs
+*.elf
+*.bin
+*.map
+build/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -107,16 +107,6 @@ POST /api/remote/learn/start
 POST /api/remote/learn/check
 ```
 
-BroadLink-specific aliases are kept for compatibility:
-
-```text
-GET  /api/broadlink/status
-GET  /api/broadlink/probe
-POST /api/broadlink/send-off
-POST /api/broadlink/learn/start
-POST /api/broadlink/learn/check
-```
-
 Send TV OFF through the configured remote provider:
 
 ```bash

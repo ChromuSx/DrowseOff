@@ -233,11 +233,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, get_settings())
             return
 
-        if parsed.path in ("/api/remote/status", "/api/broadlink/status"):
+        if parsed.path == "/api/remote/status":
             self.send_json(200, remote_status())
             return
 
-        if parsed.path in ("/api/remote/probe", "/api/broadlink/probe"):
+        if parsed.path == "/api/remote/probe":
             try:
                 self.send_json(200, remote_probe())
             except Exception as exc:
@@ -333,15 +333,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(201, {"ok": True, "id": command_id})
                 return
 
-            if parsed.path in ("/api/remote/learn/start", "/api/broadlink/learn/start"):
+            if parsed.path == "/api/remote/learn/start":
                 self.send_json(200, {"ok": True, **remote_start_learning()})
                 return
 
-            if parsed.path in ("/api/remote/learn/check", "/api/broadlink/learn/check"):
+            if parsed.path == "/api/remote/learn/check":
                 self.send_json(200, {"ok": True, **remote_check_learning()})
                 return
 
-            if parsed.path in ("/api/remote/send-off", "/api/broadlink/send-off"):
+            if parsed.path == "/api/remote/send-off":
                 repeat_count = int(payload.get("repeat_count") or 1)
                 provider = remote_status().get("provider", "remote")
                 command_id = create_command(

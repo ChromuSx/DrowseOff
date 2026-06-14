@@ -1,5 +1,9 @@
-from .db import as_int, get_last_power_event, get_readings, get_readings_between, get_settings
-from .time_utils import current_night_window, parse_iso_datetime
+from .db import as_int, get_last_power_event, get_readings, get_settings
+from .time_utils import parse_iso_datetime
+
+
+SESSION_LOOKBACK_ROWS = 5000
+SESSION_BREAK_SECONDS = 10 * 60
 
 
 def estimated_seconds(rows, predicate):
@@ -47,9 +51,82 @@ def percentile(values, percent):
     return round(ordered[lower] + (ordered[upper] - ordered[lower]) * fraction)
 
 
-def get_night_report():
-    start, end = current_night_window()
-    rows = get_readings_between(start, end)
+def timestamp(row):
+    return parse_iso_datetime(row.get("ts"))
+
+
+def seconds_between(left, right):
+    left_ts = timestamp(left)
+    right_ts = timestamp(right)
+
+    if not left_ts or not right_ts:
+        return 10
+
+    return max(0, int((right_ts - left_ts).total_seconds()))
+
+
+def sorted_recent_readings(limit=SESSION_LOOKBACK_ROWS):
+    rows = get_readings(limit)
+    return sorted(
+        [row for row in rows if timestamp(row)],
+        key=lambda row: timestamp(row),
+    )
+
+
+def find_recent_session(rows):
+    if not rows:
+        return [], False
+
+    last_in_bed_index = None
+
+    for index in range(len(rows) - 1, -1, -1):
+        if as_int(rows[index].get("in_bed")) == 1:
+            last_in_bed_index = index
+            break
+
+    if last_in_bed_index is None:
+        return [], False
+
+    start_index = last_in_bed_index
+    out_seconds = 0
+
+    for index in range(last_in_bed_index - 1, -1, -1):
+        gap = seconds_between(rows[index], rows[index + 1])
+
+        if as_int(rows[index].get("in_bed")) == 1:
+            out_seconds = 0
+            start_index = index
+        else:
+            out_seconds += gap
+            if out_seconds >= SESSION_BREAK_SECONDS:
+                start_index = index + 1
+                break
+
+    end_index = last_in_bed_index
+    out_seconds_after = 0
+    active = True
+
+    for index in range(last_in_bed_index + 1, len(rows)):
+        gap = seconds_between(rows[index - 1], rows[index])
+        end_index = index
+
+        if as_int(rows[index].get("in_bed")) == 1:
+            out_seconds_after = 0
+        else:
+            out_seconds_after += gap
+            if out_seconds_after >= SESSION_BREAK_SECONDS:
+                active = False
+                break
+
+    if end_index == len(rows) - 1 and out_seconds_after >= SESSION_BREAK_SECONDS:
+        active = False
+
+    return rows[start_index : end_index + 1], active
+
+
+def get_session_report():
+    all_rows = sorted_recent_readings()
+    rows, active = find_recent_session(all_rows)
     first_in_bed = next((row for row in rows if row.get("in_bed")), None)
     max_sleep_score = max([as_int(row.get("sleep_score")) or 0 for row in rows] or [0])
     tv_commands = sum(1 for row in rows if row.get("tv_command_sent"))
@@ -59,10 +136,14 @@ def get_night_report():
 
     mode = last_value(rows, "mode")
     threshold = last_value(rows, "threshold")
+    start_ts = timestamp(rows[0]) if rows else None
+    end_ts = timestamp(rows[-1]) if rows else None
 
     return {
-        "window_start": start.isoformat(timespec="seconds"),
-        "window_end": end.isoformat(timespec="seconds"),
+        "window_start": start_ts.isoformat(timespec="seconds") if start_ts else None,
+        "window_end": end_ts.isoformat(timespec="seconds") if end_ts else None,
+        "session_active": active,
+        "session_break_seconds": SESSION_BREAK_SECONDS,
         "readings": len(rows),
         "first_in_bed_ts": first_in_bed.get("ts") if first_in_bed else None,
         "last_ts": rows[-1].get("ts") if rows else None,
@@ -78,39 +159,59 @@ def get_night_report():
             rows, lambda row: bool(row.get("in_bed")) and bool(row.get("stable"))
         ),
         "last_power_event": get_last_power_event(),
-        "night_power_event": get_last_power_event(start, end),
+        "session_power_event": (
+            get_last_power_event(start_ts, end_ts) if start_ts and end_ts else None
+        ),
     }
 
 
-def get_morning_report():
-    night = get_night_report()
-    power_event = night.get("night_power_event")
+def get_session_summary():
+    session = get_session_report()
+    power_event = session.get("session_power_event")
+    state = "attiva" if session.get("session_active") else "conclusa"
 
-    if night["readings"] == 0:
-        summary = "Non ci sono ancora letture nella finestra notte."
+    if session["readings"] == 0:
+        summary = "Non ci sono ancora letture in una sessione riconoscibile."
     elif power_event:
-        summary = f"TV comandata alle {power_event['ts']} con punteggio {power_event.get('sleep_score', '-') }."
+        summary = (
+            f"TV comandata alle {power_event['ts']} "
+            f"con punteggio {power_event.get('sleep_score', '-') }."
+        )
     else:
         summary = (
-            "Nessun comando TV registrato nella notte. "
-            f"Punteggio massimo: {night['max_sleep_score']}."
+            f"Sessione {state}. Nessun comando TV registrato. "
+            f"Punteggio massimo: {session['max_sleep_score']}."
         )
 
     return {
         "summary": summary,
-        "readings": night["readings"],
-        "window_start": night["window_start"],
-        "window_end": night["window_end"],
-        "first_in_bed_ts": night["first_in_bed_ts"],
-        "last_ts": night["last_ts"],
-        "max_sleep_score": night["max_sleep_score"],
-        "threshold": night["threshold"],
-        "in_bed_seconds": night["in_bed_seconds"],
-        "stable_seconds": night["stable_seconds"],
-        "out_of_bed_readings": night["out_of_bed_readings"],
-        "tv_commands": night["tv_commands"],
-        "night_power_event": power_event,
+        "readings": session["readings"],
+        "window_start": session["window_start"],
+        "window_end": session["window_end"],
+        "session_active": session["session_active"],
+        "session_break_seconds": session["session_break_seconds"],
+        "first_in_bed_ts": session["first_in_bed_ts"],
+        "last_ts": session["last_ts"],
+        "max_sleep_score": session["max_sleep_score"],
+        "threshold": session["threshold"],
+        "in_bed_seconds": session["in_bed_seconds"],
+        "stable_seconds": session["stable_seconds"],
+        "out_of_bed_readings": session["out_of_bed_readings"],
+        "tv_commands": session["tv_commands"],
+        "session_power_event": power_event,
     }
+
+
+def get_night_report():
+    report = get_session_report()
+    report["night_power_event"] = report.get("session_power_event")
+    return report
+
+
+def get_morning_report():
+    report = get_session_summary()
+    report["night_power_event"] = report.get("session_power_event")
+    return report
 
 
 def get_calibration_report(limit=500):
@@ -155,8 +256,7 @@ def get_calibration_report(limit=500):
 
 
 def get_sleep_series():
-    start, end = current_night_window()
-    rows = get_readings_between(start, end)
+    rows, _active = find_recent_session(sorted_recent_readings())
     max_points = 360
 
     if len(rows) > max_points:
@@ -167,9 +267,12 @@ def get_sleep_series():
     else:
         sampled = rows
 
+    start_ts = timestamp(rows[0]) if rows else None
+    end_ts = timestamp(rows[-1]) if rows else None
+
     return {
-        "window_start": start.isoformat(timespec="seconds"),
-        "window_end": end.isoformat(timespec="seconds"),
+        "window_start": start_ts.isoformat(timespec="seconds") if start_ts else None,
+        "window_end": end_ts.isoformat(timespec="seconds") if end_ts else None,
         "points": [
             {
                 "ts": row.get("ts"),

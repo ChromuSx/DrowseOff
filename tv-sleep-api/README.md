@@ -16,7 +16,7 @@ Copiala sul mini PC/server prima di avviarla.
 app.py                  # entrypoint minimale
 tv_sleep/config.py      # percorsi e variabili ambiente
 tv_sleep/db.py          # SQLite e query
-tv_sleep/reports.py     # riepilogo notte e serie grafico
+tv_sleep/reports.py     # riepilogo sessione e serie grafico
 tv_sleep/server.py      # HTTP server, routing API e static files
 templates/dashboard.html
 static/app.css
@@ -64,10 +64,10 @@ Ultima lettura:
 http://192.168.1.196:8010/api/latest
 ```
 
-Riepilogo ultima notte:
+Riepilogo sessione recente:
 
 ```text
-http://192.168.1.196:8010/api/night
+http://192.168.1.196:8010/api/session
 ```
 
 Serie dati per il grafico:
@@ -82,9 +82,16 @@ Impostazioni modificabili dalla dashboard:
 http://192.168.1.196:8010/api/settings
 ```
 
-Report mattina:
+Report sessione:
 
 ```text
+http://192.168.1.196:8010/api/session-summary
+```
+
+Endpoint legacy ancora disponibili per compatibilita:
+
+```text
+http://192.168.1.196:8010/api/night
 http://192.168.1.196:8010/api/morning-report
 ```
 

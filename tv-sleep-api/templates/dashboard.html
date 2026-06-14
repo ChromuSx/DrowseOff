@@ -20,7 +20,7 @@
   <header class="topbar">
     <div>
       <h1>TV Sleep Monitor</h1>
-      <p class="page-subtitle">Stato notte, sensore, comandi TV e calibrazione in un posto solo.</p>
+      <p class="page-subtitle">Stato sessione, sensore, comandi TV e calibrazione in un posto solo.</p>
     </div>
     <div class="header-actions">
       <div class="theme-switch" role="group" aria-label="Tema dashboard">
@@ -66,7 +66,7 @@
 
   <nav class="tabbar" aria-label="Sezioni dashboard">
     <button class="tab-button" type="button" data-tab-target="overview">Panoramica</button>
-    <button class="tab-button" type="button" data-tab-target="night">Notte</button>
+    <button class="tab-button" type="button" data-tab-target="session">Sessione</button>
     <button class="tab-button" type="button" data-tab-target="calibration">Calibrazione</button>
     <button class="tab-button" type="button" data-tab-target="commands">Comandi TV</button>
     <button class="tab-button" type="button" data-tab-target="settings">Impostazioni</button>
@@ -78,13 +78,13 @@
       <div class="grid" id="cards"></div>
 
       <div class="two-column">
-        <div class="card" id="morningReportCard">
+        <div class="card" id="sessionReportCard">
           <div class="section-title compact-title">
-            <strong>Report mattina</strong>
-            <span class="section-note" id="morningWindow">-</span>
+            <strong>Report sessione</strong>
+            <span class="section-note" id="sessionSummaryWindow">-</span>
           </div>
-          <p class="report-text" id="morningSummary">-</p>
-          <div class="mini-metrics" id="morningMetrics"></div>
+          <p class="report-text" id="sessionSummary">-</p>
+          <div class="mini-metrics" id="sessionMetrics"></div>
         </div>
 
         <div class="card insight-card">
@@ -109,7 +109,7 @@
           </div>
         </div>
         <div class="chart-wrap">
-          <canvas class="chart" id="sleepChart" aria-label="Grafico notte"></canvas>
+          <canvas class="chart" id="sleepChart" aria-label="Grafico sessione"></canvas>
         </div>
         <div class="legend-row">
           <span><i class="legend-dot accent"></i>Linea principale</span>
@@ -119,12 +119,12 @@
       </div>
     </section>
 
-    <section class="tab-panel" data-tab-panel="night">
+    <section class="tab-panel" data-tab-panel="session">
       <div class="section-title">
-        <strong>Ultima notte</strong>
-        <span class="section-note" id="nightWindow">-</span>
+        <strong>Sessione recente</strong>
+        <span class="section-note" id="sessionWindow">-</span>
       </div>
-      <div class="grid" id="nightCards"></div>
+      <div class="grid" id="sessionCards"></div>
     </section>
 
     <section class="tab-panel" data-tab-panel="calibration">

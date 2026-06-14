@@ -128,7 +128,7 @@ const calibrationNextButton = document.getElementById('calibrationNextButton');
 const calibrationApplyButton = document.getElementById('calibrationApplyButton');
 
 let latestSeries = [];
-let latestNight = {};
+let latestSession = {};
 let latestSettings = {};
 let latestCalibration = {};
 let latestReadings = [];
@@ -163,7 +163,7 @@ function applyThemePreference(preference) {
     );
   });
 
-  setTimeout(() => renderSleepChart(latestSeries, latestNight.threshold), 0);
+  setTimeout(() => renderSleepChart(latestSeries, latestSession.threshold), 0);
 }
 
 function setStatus(message) {
@@ -171,6 +171,10 @@ function setStatus(message) {
 }
 
 function selectTab(name) {
+  if (!tabPanels.some((panel) => panel.dataset.tabPanel === name)) {
+    name = 'overview';
+  }
+
   tabButtons.forEach((button) => {
     const selected = button.dataset.tabTarget === name;
     button.setAttribute('aria-selected', selected ? 'true' : 'false');
@@ -181,7 +185,7 @@ function selectTab(name) {
   });
 
   localStorage.setItem('tvSleepTab', name);
-  setTimeout(() => renderSleepChart(latestSeries, latestNight.threshold), 0);
+  setTimeout(() => renderSleepChart(latestSeries, latestSession.threshold), 0);
 }
 
 function selectChartMode(mode) {
@@ -189,7 +193,7 @@ function selectChartMode(mode) {
   chartModeButtons.forEach((button) => {
     button.setAttribute('aria-pressed', button.dataset.chartMode === chartMode ? 'true' : 'false');
   });
-  renderSleepChart(latestSeries, latestNight.threshold);
+  renderSleepChart(latestSeries, latestSession.threshold);
 }
 
 function resetClearButton() {
@@ -365,10 +369,10 @@ function metricCard(label, value, detail = '') {
   `;
 }
 
-function renderHero(summary, night, settings) {
-  const threshold = Number(night.threshold || settings.sleep_threshold || 0);
-  const score = Number(night.max_sleep_score || summary.max_sleep_score || 0);
-  const powerEvent = night.night_power_event || night.last_power_event;
+function renderHero(summary, session, settings) {
+  const threshold = Number(session.threshold || settings.sleep_threshold || 0);
+  const score = Number(session.max_sleep_score || summary.max_sleep_score || 0);
+  const powerEvent = session.session_power_event;
   const autoOn = Number(settings.auto_power_enabled ?? 1) === 1;
   const progress = threshold > 0 ? Math.min(100, Math.round((score / threshold) * 100)) : 0;
 
@@ -381,10 +385,10 @@ function renderHero(summary, night, settings) {
   autoModePill.className = autoOn ? 'status-pill ok' : 'status-pill warn';
   autoModePill.textContent = autoOn ? 'Auto attivo' : 'Solo monitoraggio';
 
-  if (!night.readings) {
+  if (!session.readings) {
     badge.textContent = 'In attesa';
-    title.textContent = 'Nessuna notte ancora leggibile';
-    detail.textContent = 'Appena arrivano letture nella finestra 20:00-12:00, qui comparira il verdetto.';
+    title.textContent = 'Nessuna sessione ancora leggibile';
+    detail.textContent = 'Appena il sensore vede una presenza stabile nel letto, qui comparira il verdetto della sessione.';
   } else if (powerEvent) {
     badge.className = 'status-pill ok';
     badge.textContent = 'TV comandata';
@@ -393,7 +397,7 @@ function renderHero(summary, night, settings) {
   } else if (score >= threshold && threshold > 0 && !autoOn) {
     badge.className = 'status-pill warn';
     badge.textContent = 'Soglia raggiunta';
-    title.textContent = 'La notte sembra da spegnimento, ma sei in solo monitoraggio';
+    title.textContent = 'La sessione sembra da spegnimento, ma sei in solo monitoraggio';
     detail.textContent = `Il punteggio ha raggiunto ${score}/${threshold}. Nessun POWER automatico viene inviato in questa modalita.`;
   } else if (score >= threshold && threshold > 0) {
     badge.className = 'status-pill warn';
@@ -402,7 +406,7 @@ function renderHero(summary, night, settings) {
     detail.textContent = 'Controlla eventi e comandi: potrebbe essere un problema IR, posizione del trasmettitore o registrazione evento.';
   } else {
     badge.textContent = 'Monitoraggio';
-    title.textContent = 'Nessuno spegnimento registrato stanotte';
+    title.textContent = 'Nessuno spegnimento nella sessione recente';
     detail.textContent = `Punteggio massimo ${score}/${threshold || '-'}. Il sistema sta ancora osservando o non ha raggiunto la soglia.`;
   }
 
@@ -415,42 +419,42 @@ function renderHero(summary, night, settings) {
   document.getElementById('pendingCommandsLabel').textContent = summary.pending_commands || 0;
 }
 
-function renderSummaryCards(summary, night, settings) {
+function renderSummaryCards(summary, session, settings) {
   document.getElementById('cards').innerHTML = [
     metricCard('Letture totali', summary.readings || 0, 'Database locale'),
     metricCard('Ultima lettura', formatTime(summary.last_ts), latestOnline ? 'ESP32 online' : 'ESP32 offline'),
-    metricCard('Max punteggio', night.max_sleep_score || summary.max_sleep_score || 0, `Soglia ${night.threshold || settings.sleep_threshold || '-'}`),
+    metricCard('Max punteggio', session.max_sleep_score || summary.max_sleep_score || 0, `Soglia ${session.threshold || settings.sleep_threshold || '-'}`),
     metricCard('Comandi TV', summary.tv_commands || 0, 'Automatici registrati'),
     metricCard('Comandi pendenti', summary.pending_commands || 0, 'Scadono automaticamente'),
     metricCard('Modalita', Number(settings.auto_power_enabled ?? 1) === 1 ? 'Auto' : 'Monitor', 'Config letta dall ESP32')
   ].join('');
 }
 
-function renderNightCards(night) {
-  latestNight = night || {};
-  const powerEvent = latestNight.night_power_event || latestNight.last_power_event;
+function renderSessionCards(session) {
+  latestSession = session || {};
+  const powerEvent = latestSession.session_power_event;
   const powerDetail = powerEvent
     ? `Punteggio ${powerEvent.sleep_score ?? '-'}`
     : 'Nessun evento registrato';
 
-  document.getElementById('nightWindow').textContent =
-    `${formatShortTime(latestNight.window_start)} - ${formatShortTime(latestNight.window_end)}`;
+  document.getElementById('sessionWindow').textContent =
+    `${formatShortTime(latestSession.window_start)} - ${formatShortTime(latestSession.window_end)}`;
 
-  document.getElementById('nightCards').innerHTML = [
-    metricCard('Letture notte', latestNight.readings || 0, 'Finestra 20:00-12:00'),
-    metricCard('Prima presenza', formatTime(latestNight.first_in_bed_ts), `Nel letto ${formatDuration(latestNight.in_bed_seconds)}`),
-    metricCard('Tempo stabile', formatDuration(latestNight.stable_seconds), `${latestNight.out_of_bed_readings || 0} letture fuori letto`),
-    metricCard('Max punteggio', latestNight.max_sleep_score || 0, `Soglia ${latestNight.threshold ?? '-'}`),
-    metricCard('Ultimo spegnimento', powerEvent ? formatTime(powerEvent.ts) : 'Mai', powerDetail),
-    metricCard('Modalita firmware', latestNight.mode || '-', 'Dall ultima lettura ESP32')
+  document.getElementById('sessionCards').innerHTML = [
+    metricCard('Letture sessione', latestSession.readings || 0, latestSession.session_active ? 'Sessione attiva' : 'Sessione conclusa'),
+    metricCard('Prima presenza', formatTime(latestSession.first_in_bed_ts), `Nel letto ${formatDuration(latestSession.in_bed_seconds)}`),
+    metricCard('Tempo stabile', formatDuration(latestSession.stable_seconds), `${latestSession.out_of_bed_readings || 0} letture fuori letto`),
+    metricCard('Max punteggio', latestSession.max_sleep_score || 0, `Soglia ${latestSession.threshold ?? '-'}`),
+    metricCard('Spegnimento sessione', powerEvent ? formatTime(powerEvent.ts) : 'Mai', powerDetail),
+    metricCard('Modalita firmware', latestSession.mode || '-', 'Dall ultima lettura ESP32')
   ].join('');
 }
 
-function renderMorningReport(report) {
-  document.getElementById('morningWindow').textContent =
+function renderSessionSummary(report) {
+  document.getElementById('sessionSummaryWindow').textContent =
     `${formatShortTime(report.window_start)} - ${formatShortTime(report.window_end)}`;
-  document.getElementById('morningSummary').textContent = report.summary || '-';
-  document.getElementById('morningMetrics').innerHTML = [
+  document.getElementById('sessionSummary').textContent = report.summary || '-';
+  document.getElementById('sessionMetrics').innerHTML = [
     ['Nel letto', formatDuration(report.in_bed_seconds)],
     ['Stabile', formatDuration(report.stable_seconds)],
     ['Max score', report.max_sleep_score ?? 0],
@@ -687,7 +691,7 @@ function renderSleepChart(points = [], threshold) {
   const warn = styles.getPropertyValue('--warn').trim();
 
   if (!points.length) {
-    chartCaption.textContent = 'Nessun dato nella finestra notte';
+    chartCaption.textContent = 'Nessun dato nella sessione recente';
     chartTitle.textContent = chartMode === 'distance' ? 'Distanza filtrata' : 'Punteggio sonno';
     context.fillStyle = muted;
     context.font = '13px system-ui, sans-serif';
@@ -901,12 +905,12 @@ function renderReadings(readings) {
 }
 
 async function refresh() {
-  const [summary, settings, morning, calibration, night, series, events, commands, readings] = await Promise.all([
+  const [summary, settings, sessionSummary, calibration, session, series, events, commands, readings] = await Promise.all([
     fetch('/api/summary').then((response) => response.json()),
     fetch('/api/settings').then((response) => response.json()),
-    fetch('/api/morning-report').then((response) => response.json()),
+    fetch('/api/session-summary').then((response) => response.json()),
     fetch('/api/calibration').then((response) => response.json()),
-    fetch('/api/night').then((response) => response.json()),
+    fetch('/api/session').then((response) => response.json()),
     fetch('/api/sleep-series').then((response) => response.json()),
     fetch('/api/events?limit=20').then((response) => response.json()),
     fetch('/api/commands?limit=20').then((response) => response.json()),
@@ -917,13 +921,13 @@ async function refresh() {
   latestReadings = readings;
 
   renderSettings(settings);
-  renderHero(summary, night, settings);
-  renderSummaryCards(summary, night, settings);
-  renderMorningReport(morning);
+  renderHero(summary, session, settings);
+  renderSummaryCards(summary, session, settings);
+  renderSessionSummary(sessionSummary);
   renderScoreReason(readings);
-  renderNightCards(night);
+  renderSessionCards(session);
   renderCalibration(calibration);
-  renderSleepChart(series.points || [], night.threshold);
+  renderSleepChart(series.points || [], session.threshold);
   renderEvents(events);
   renderCommands(commands);
   renderReadings(readings);
@@ -971,7 +975,7 @@ document.getElementById('commandRows').addEventListener('click', (event) => {
   if (!button) return;
   cancelPendingCommand(Number(button.dataset.cancelCommand));
 });
-window.addEventListener('resize', () => renderSleepChart(latestSeries, latestNight.threshold));
+window.addEventListener('resize', () => renderSleepChart(latestSeries, latestSession.threshold));
 
 applyThemePreference(currentThemePreference());
 selectTab(localStorage.getItem('tvSleepTab') || 'overview');

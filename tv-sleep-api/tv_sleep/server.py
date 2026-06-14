@@ -30,7 +30,14 @@ from .db import (
     insert_reading,
     update_settings,
 )
-from .reports import get_calibration_report, get_morning_report, get_night_report, get_sleep_series
+from .reports import (
+    get_calibration_report,
+    get_morning_report,
+    get_night_report,
+    get_session_report,
+    get_session_summary,
+    get_sleep_series,
+)
 from .time_utils import now_iso
 
 
@@ -215,6 +222,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/morning-report":
             self.send_json(200, get_morning_report())
+            return
+
+        if parsed.path == "/api/session":
+            self.send_json(200, get_session_report())
+            return
+
+        if parsed.path == "/api/session-summary":
+            self.send_json(200, get_session_summary())
             return
 
         if parsed.path == "/api/calibration":

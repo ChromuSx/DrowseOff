@@ -49,6 +49,7 @@ const unsigned long SERVER_UPLOAD_INTERVAL_MS = 10000;
 const unsigned long COMMAND_CHECK_INTERVAL_MS = 5000;
 const unsigned long SETTINGS_SYNC_INTERVAL_MS = 60000;
 const unsigned long WIFI_RECONNECT_INTERVAL_MS = 30000;
+const unsigned long REMOTE_AUTO_RETRY_INTERVAL_MS = 30000;
 const int HTTP_GET_TIMEOUT_MS = 2000;
 const int HTTP_POST_TIMEOUT_MS = 8000;
 
@@ -79,6 +80,7 @@ unsigned long lastServerUpload = 0;
 unsigned long lastCommandCheck = 0;
 unsigned long lastSettingsSync = 0;
 unsigned long lastWifiRetry = 0;
+unsigned long lastRemoteAutoAttempt = 0;
 bool otaConfigured = false;
 
 int distanceHistory[DISTANCE_SAMPLE_COUNT];
@@ -375,7 +377,7 @@ void completeServerCommand(int commandId, const char* status, int filteredDistan
   json += ",\"status\":\"" + String(status) + "\"";
   json += ",\"sleep_score\":" + String(sleepScore);
   json += ",\"dist_filtered\":" + String(filteredDistance);
-  json += ",\"note\":\"" + String(note) + "\"";
+  json += ",\"note\":\"" + escapeJson(String(note)) + "\"";
   json += "}";
 
   postJson(serverUrl("/api/commands/complete"), json);
@@ -669,6 +671,7 @@ void loop() {
       lastValidDistance = -1;
       resetDistanceFilter();
       tvAlreadyOff = false;
+      lastRemoteAutoAttempt = 0;
       scoreReason = "reset: out of bed";
     } else {
       sleepScore -= 1;
@@ -767,8 +770,13 @@ void loop() {
       esp32AutoSentThisLoop = true;
       tvAlreadyOff = true;
     } else {
-      Serial.print(" REMOTE REQUEST");
-      remoteAutoRequestThisLoop = true;
+      if (lastRemoteAutoAttempt == 0 || millis() - lastRemoteAutoAttempt >= REMOTE_AUTO_RETRY_INTERVAL_MS) {
+        Serial.print(" REMOTE REQUEST");
+        remoteAutoRequestThisLoop = true;
+        lastRemoteAutoAttempt = millis();
+      } else {
+        Serial.print(" REMOTE RETRY WAIT");
+      }
     }
   } else if (sleepScore >= sleepThreshold && !autoPowerEnabled) {
     Serial.print(" | THRESHOLD REACHED - MONITOR ONLY");

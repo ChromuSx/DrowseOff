@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 
 def now_iso():
@@ -22,14 +22,3 @@ def parse_iso_datetime(value):
         return parsed.replace(tzinfo=datetime.now().astimezone().tzinfo)
 
     return parsed.astimezone()
-
-
-def current_night_window():
-    now = datetime.now().astimezone()
-    if now.hour >= 20:
-        start = now.replace(hour=20, minute=0, second=0, microsecond=0)
-    else:
-        start = (now - timedelta(days=1)).replace(
-            hour=20, minute=0, second=0, microsecond=0
-        )
-    return start, start + timedelta(hours=16)

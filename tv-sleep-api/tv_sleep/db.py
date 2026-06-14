@@ -450,7 +450,7 @@ def expire_old_commands(conn=None):
             """
             UPDATE commands
             SET status = 'expired', completed_at = COALESCE(completed_at, ?)
-            WHERE status = 'pending'
+            WHERE status IN ('pending', 'claimed')
               AND expires_at IS NOT NULL
               AND expires_at < ?
             """,
@@ -572,7 +572,7 @@ def get_last_power_event(start=None, end=None):
     params = list(TV_OFF_SUCCESS_EVENT_TYPES)
 
     if start and end:
-        query += " AND ts >= ? AND ts < ?"
+        query += " AND ts >= ? AND ts <= ?"
         params.extend(
             [
                 start.isoformat(timespec="seconds"),
@@ -598,7 +598,7 @@ def count_power_events(start=None, end=None, conn=None):
     params = list(TV_OFF_SUCCESS_EVENT_TYPES)
 
     if start and end:
-        query += " AND ts >= ? AND ts < ?"
+        query += " AND ts >= ? AND ts <= ?"
         params.extend(
             [
                 start.isoformat(timespec="seconds"),

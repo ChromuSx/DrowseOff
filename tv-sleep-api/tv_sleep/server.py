@@ -91,11 +91,15 @@ def command_payload(command):
 
 def try_send_remote_auto(payload):
     if not REMOTE_AUTO_ENABLED:
-        return
+        return {
+            "ok": False,
+            "status": "disabled",
+            "error": "automatic remote is disabled",
+        }
 
     try:
         result = remote_send_tv_off(1)
-        insert_event(
+        event_id = insert_event(
             {
                 "device_id": f"remote-{result['provider']}",
                 "event_type": "tv_off_remote_auto",
@@ -104,8 +108,14 @@ def try_send_remote_auto(payload):
                 "note": f"TV OFF sent by {result['provider']} x{result['repeat_count']}",
             }
         )
+        return {
+            "ok": True,
+            "status": "sent",
+            "event_id": event_id,
+            **result,
+        }
     except Exception as exc:
-        insert_event(
+        event_id = insert_event(
             {
                 "device_id": "remote",
                 "event_type": "tv_off_remote_failed",
@@ -114,6 +124,12 @@ def try_send_remote_auto(payload):
                 "note": f"Automatic remote error: {exc}",
             }
         )
+        return {
+            "ok": False,
+            "status": "failed",
+            "event_id": event_id,
+            "error": str(exc),
+        }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -337,7 +353,23 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/events":
                 event_id = insert_event(payload)
                 if payload.get("event_type") == "tv_power_off_attempt":
-                    try_send_remote_auto(payload)
+                    remote_result = try_send_remote_auto(payload)
+                    if not remote_result["ok"]:
+                        status = 409 if remote_result["status"] == "disabled" else 503
+                        self.send_json(
+                            status,
+                            {
+                                "ok": False,
+                                "id": event_id,
+                                "remote": remote_result,
+                                "error": remote_result["error"],
+                            },
+                        )
+                        return
+
+                    self.send_json(201, {"ok": True, "id": event_id, "remote": remote_result})
+                    return
+
                 self.send_json(201, {"ok": True, "id": event_id})
                 return
 

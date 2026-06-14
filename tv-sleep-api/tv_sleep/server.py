@@ -7,7 +7,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .config import (
+    ALLOW_UNAUTHENTICATED_API,
     API_TOKEN,
+    CORS_ALLOW_ORIGIN,
     DEFAULT_SENSOR_DEVICE_ID,
     HOST,
     PORT,
@@ -133,8 +135,32 @@ def try_send_remote_auto(payload):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def cors_allowed_origin(self):
+        if not CORS_ALLOW_ORIGIN:
+            return None
+
+        if CORS_ALLOW_ORIGIN == "*":
+            return "*"
+
+        request_origin = self.headers.get("Origin", "")
+        allowed_origins = [
+            origin.strip()
+            for origin in CORS_ALLOW_ORIGIN.split(",")
+            if origin.strip()
+        ]
+
+        if request_origin in allowed_origins:
+            return request_origin
+
+        return None
+
     def send_auth_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
+        allowed_origin = self.cors_allowed_origin()
+        if allowed_origin:
+            self.send_header("Access-Control-Allow-Origin", allowed_origin)
+            if allowed_origin != "*":
+                self.send_header("Vary", "Origin")
+
         self.send_header(
             "Access-Control-Allow-Headers",
             "Content-Type, X-TV-Sleep-Token, Authorization",
@@ -211,8 +237,23 @@ class Handler(BaseHTTPRequestHandler):
         return self.headers.get("X-TV-Sleep-Token", "").strip()
 
     def require_api_auth(self, path):
-        if not API_TOKEN or not path.startswith("/api/") or path == "/api/health":
+        if not path.startswith("/api/") or path == "/api/health":
             return True
+
+        if not API_TOKEN:
+            if ALLOW_UNAUTHENTICATED_API:
+                return True
+
+            self.send_json(
+                503,
+                {
+                    "error": (
+                        "API token is not configured. Set DROWSEOFF_API_TOKEN "
+                        "or explicitly set DROWSEOFF_ALLOW_UNAUTHENTICATED_API=1."
+                    )
+                },
+            )
+            return False
 
         if self.request_token() == API_TOKEN:
             return True
@@ -291,7 +332,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/export/readings.csv":
             self.send_csv(
-                "tv-sleep-readings.csv",
+                "drowseoff-readings.csv",
                 get_readings_for_export(),
                 READING_COLUMNS,
             )
@@ -299,7 +340,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/export/events.csv":
             self.send_csv(
-                "tv-sleep-events.csv",
+                "drowseoff-events.csv",
                 get_events_for_export(),
                 EVENT_COLUMNS,
             )
@@ -307,7 +348,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/api/export/commands.csv":
             self.send_csv(
-                "tv-sleep-commands.csv",
+                "drowseoff-commands.csv",
                 get_commands_for_export(),
                 COMMAND_COLUMNS,
             )
@@ -504,7 +545,7 @@ class Handler(BaseHTTPRequestHandler):
 def run():
     ensure_db()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"TV Sleep API listening on http://{HOST}:{PORT}")
+    print(f"DrowseOff API listening on http://{HOST}:{PORT}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

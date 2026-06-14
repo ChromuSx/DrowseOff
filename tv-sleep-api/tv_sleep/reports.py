@@ -1,9 +1,18 @@
-from .db import as_int, count_power_events, get_last_power_event, get_readings, get_settings
+from datetime import timedelta
+
+from .db import (
+    as_int,
+    count_power_events,
+    get_last_power_event,
+    get_readings,
+    get_settings,
+)
 from .time_utils import parse_iso_datetime
 
 
 SESSION_LOOKBACK_ROWS = 5000
 SESSION_BREAK_SECONDS = 10 * 60
+SESSION_EVENT_GRACE_SECONDS = 60
 
 
 def estimated_seconds(rows, predicate):
@@ -137,7 +146,14 @@ def get_session_report():
     threshold = last_value(rows, "threshold")
     start_ts = timestamp(rows[0]) if rows else None
     end_ts = timestamp(rows[-1]) if rows else None
-    tv_commands = count_power_events(start_ts, end_ts) if start_ts and end_ts else 0
+    event_end_ts = (
+        end_ts + timedelta(seconds=SESSION_EVENT_GRACE_SECONDS) if end_ts else None
+    )
+    tv_commands = (
+        count_power_events(start_ts, event_end_ts)
+        if start_ts and event_end_ts
+        else 0
+    )
 
     return {
         "window_start": start_ts.isoformat(timespec="seconds") if start_ts else None,
@@ -160,7 +176,9 @@ def get_session_report():
         ),
         "last_power_event": get_last_power_event(),
         "session_power_event": (
-            get_last_power_event(start_ts, end_ts) if start_ts and end_ts else None
+            get_last_power_event(start_ts, event_end_ts)
+            if start_ts and event_end_ts
+            else None
         ),
     }
 

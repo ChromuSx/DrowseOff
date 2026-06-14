@@ -20,7 +20,7 @@
 #endif
 
 #ifndef DEVICE_ID_VALUE
-#define DEVICE_ID_VALUE "tv-sleep-sensor"
+#define DEVICE_ID_VALUE "drowseoff-sensor"
 #endif
 
 #ifndef SERVER_BASE_URL_VALUE
@@ -50,6 +50,7 @@ const unsigned long COMMAND_CHECK_INTERVAL_MS = 5000;
 const unsigned long SETTINGS_SYNC_INTERVAL_MS = 60000;
 const unsigned long WIFI_RECONNECT_INTERVAL_MS = 30000;
 const unsigned long REMOTE_AUTO_RETRY_INTERVAL_MS = 30000;
+const unsigned long COMMAND_COMPLETE_RETRY_INTERVAL_MS = 15000;
 const int HTTP_GET_TIMEOUT_MS = 2000;
 const int HTTP_POST_TIMEOUT_MS = 8000;
 
@@ -81,7 +82,13 @@ unsigned long lastCommandCheck = 0;
 unsigned long lastSettingsSync = 0;
 unsigned long lastWifiRetry = 0;
 unsigned long lastRemoteAutoAttempt = 0;
+unsigned long lastCommandCompleteAttempt = 0;
 bool otaConfigured = false;
+
+int pendingCommandCompleteId = 0;
+int pendingCommandCompleteDistance = -1;
+String pendingCommandCompleteStatus = "";
+String pendingCommandCompleteNote = "";
 
 int distanceHistory[DISTANCE_SAMPLE_COUNT];
 int distanceHistoryCount = 0;
@@ -371,7 +378,7 @@ void sendTvPower(int sendCount = 1) {
   }
 }
 
-void completeServerCommand(int commandId, const char* status, int filteredDistance, const char* note) {
+bool completeServerCommand(int commandId, const char* status, int filteredDistance, const char* note) {
   String json = "{";
   json += "\"id\":" + String(commandId);
   json += ",\"status\":\"" + String(status) + "\"";
@@ -380,7 +387,48 @@ void completeServerCommand(int commandId, const char* status, int filteredDistan
   json += ",\"note\":\"" + escapeJson(String(note)) + "\"";
   json += "}";
 
-  postJson(serverUrl("/api/commands/complete"), json);
+  return postJson(serverUrl("/api/commands/complete"), json);
+}
+
+void rememberPendingCommandCompletion(int commandId, const char* status, int filteredDistance, const char* note) {
+  pendingCommandCompleteId = commandId;
+  pendingCommandCompleteStatus = String(status);
+  pendingCommandCompleteDistance = filteredDistance;
+  pendingCommandCompleteNote = String(note);
+  lastCommandCompleteAttempt = millis();
+}
+
+void clearPendingCommandCompletion() {
+  pendingCommandCompleteId = 0;
+  pendingCommandCompleteStatus = "";
+  pendingCommandCompleteDistance = -1;
+  pendingCommandCompleteNote = "";
+  lastCommandCompleteAttempt = 0;
+}
+
+void retryPendingCommandCompletion(int currentFilteredDistance) {
+  if (pendingCommandCompleteId <= 0) {
+    return;
+  }
+
+  if (millis() - lastCommandCompleteAttempt < COMMAND_COMPLETE_RETRY_INTERVAL_MS) {
+    return;
+  }
+
+  lastCommandCompleteAttempt = millis();
+
+  int distance = pendingCommandCompleteDistance;
+  if (distance < 0) {
+    distance = currentFilteredDistance;
+  }
+
+  if (completeServerCommand(
+        pendingCommandCompleteId,
+        pendingCommandCompleteStatus.c_str(),
+        distance,
+        pendingCommandCompleteNote.c_str())) {
+    clearPendingCommandCompletion();
+  }
 }
 
 bool checkServerCommands(int filteredDistance) {
@@ -410,7 +458,10 @@ bool checkServerCommands(int filteredDistance) {
 
   sendTvPower(repeatCount);
   tvAlreadyOff = true;
-  completeServerCommand(commandId, "done", filteredDistance, "TV OFF sent by ESP32");
+
+  if (!completeServerCommand(commandId, "done", filteredDistance, "TV OFF sent by ESP32")) {
+    rememberPendingCommandCompletion(commandId, "done", filteredDistance, "TV OFF sent by ESP32");
+  }
 
   return true;
 }
@@ -588,7 +639,7 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
-  Serial.println("Starting TV Sleep Monitor - filtered distance build");
+  Serial.println("Starting DrowseOff - filtered distance build");
 
   Serial2.begin(256000, SERIAL_8N1, RADAR_RX_PIN, RADAR_TX_PIN);
 
@@ -709,7 +760,9 @@ void loop() {
     sleepScore = sleepThreshold;
   }
 
-  if (checkServerCommands(filteredDistance)) {
+  retryPendingCommandCompletion(filteredDistance);
+
+  if (pendingCommandCompleteId == 0 && checkServerCommands(filteredDistance)) {
     tvCommandSentThisLoop = true;
     dashboardCommandThisLoop = true;
   }

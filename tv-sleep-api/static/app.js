@@ -1,5 +1,12 @@
 const USER_LOCALE = navigator.language || 'en-US';
-const API_TOKEN_STORAGE_KEY = 'tvSleepApiToken';
+const API_TOKEN_STORAGE_KEY = 'drowseOffApiToken';
+const LEGACY_API_TOKEN_STORAGE_KEY = 'tvSleepApiToken';
+const THEME_STORAGE_KEY = 'drowseOffTheme';
+const LEGACY_THEME_STORAGE_KEY = 'tvSleepTheme';
+const TAB_STORAGE_KEY = 'drowseOffTab';
+const LEGACY_TAB_STORAGE_KEY = 'tvSleepTab';
+const CHART_STORAGE_KEY = 'drowseOffChart';
+const LEGACY_CHART_STORAGE_KEY = 'tvSleepChart';
 
 const yn = (value) => value ? '<span class="ok">YES</span>' : '<span class="bad">NO</span>';
 
@@ -159,16 +166,20 @@ let calibrationTimer = null;
 let calibrationSeconds = 0;
 
 function currentThemePreference() {
-  const savedTheme = localStorage.getItem('tvSleepTheme');
+  const savedTheme =
+    localStorage.getItem(THEME_STORAGE_KEY) ||
+    localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
   return savedTheme === 'light' || savedTheme === 'dark' ? savedTheme : 'system';
 }
 
 function applyThemePreference(preference) {
   if (preference === 'system') {
-    localStorage.removeItem('tvSleepTheme');
+    localStorage.removeItem(THEME_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
     document.documentElement.removeAttribute('data-theme');
   } else {
-    localStorage.setItem('tvSleepTheme', preference);
+    localStorage.setItem(THEME_STORAGE_KEY, preference);
+    localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
     document.documentElement.dataset.theme = preference;
   }
 
@@ -187,7 +198,11 @@ function setStatus(message) {
 }
 
 function apiToken() {
-  return localStorage.getItem(API_TOKEN_STORAGE_KEY) || '';
+  return (
+    localStorage.getItem(API_TOKEN_STORAGE_KEY) ||
+    localStorage.getItem(LEGACY_API_TOKEN_STORAGE_KEY) ||
+    ''
+  );
 }
 
 function authHeaders(headers = {}) {
@@ -230,9 +245,11 @@ function configureApiToken() {
   const nextToken = value.trim();
   if (nextToken) {
     localStorage.setItem(API_TOKEN_STORAGE_KEY, nextToken);
+    localStorage.removeItem(LEGACY_API_TOKEN_STORAGE_KEY);
     setStatus('API token saved in this browser.');
   } else {
     localStorage.removeItem(API_TOKEN_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_API_TOKEN_STORAGE_KEY);
     setStatus('API token cleared from this browser.');
   }
 
@@ -288,7 +305,8 @@ function selectTab(name) {
     panel.classList.toggle('active', panel.dataset.tabPanel === name);
   });
 
-  localStorage.setItem('tvSleepTab', name);
+  localStorage.setItem(TAB_STORAGE_KEY, name);
+  localStorage.removeItem(LEGACY_TAB_STORAGE_KEY);
   setTimeout(() => renderSleepChart(latestSeries, latestSession.threshold), 0);
 }
 
@@ -1176,11 +1194,20 @@ document.getElementById('commandRows').addEventListener('click', (event) => {
 window.addEventListener('resize', () => renderSleepChart(latestSeries, latestSession.threshold));
 
 applyThemePreference(currentThemePreference());
-selectTab(localStorage.getItem('tvSleepTab') || 'overview');
-selectChartMode(localStorage.getItem('tvSleepChart') || 'score');
+selectTab(
+  localStorage.getItem(TAB_STORAGE_KEY) ||
+  localStorage.getItem(LEGACY_TAB_STORAGE_KEY) ||
+  'overview'
+);
+selectChartMode(
+  localStorage.getItem(CHART_STORAGE_KEY) ||
+  localStorage.getItem(LEGACY_CHART_STORAGE_KEY) ||
+  'score'
+);
 chartModeButtons.forEach((button) => {
   button.addEventListener('click', () => {
-    localStorage.setItem('tvSleepChart', chartMode);
+    localStorage.setItem(CHART_STORAGE_KEY, chartMode);
+    localStorage.removeItem(LEGACY_CHART_STORAGE_KEY);
   });
 });
 updateCalibrationWizard();

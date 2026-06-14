@@ -1,6 +1,6 @@
-# TV Sleep API
+# DrowseOff API
 
-Local API and dashboard for TV Sleep Monitor. It receives ESP32 sensor readings,
+Local API and dashboard for DrowseOff. It receives ESP32 sensor readings,
 stores them in SQLite, renders the web dashboard, and can send a TV OFF command
 through a configurable remote backend.
 
@@ -31,21 +31,29 @@ Then adjust the values for your home network:
 
 ```env
 TZ=UTC
-TV_SLEEP_HOST_PORT=8010
-TV_SLEEP_DB=/data/tv_sleep.db
-TV_SLEEP_API_TOKEN=
-DEFAULT_SENSOR_DEVICE_ID=tv-sleep-sensor
+DROWSEOFF_HOST_PORT=8010
+DROWSEOFF_DB=/data/drowseoff.db
+DROWSEOFF_API_TOKEN=replace-with-a-long-random-token
+DROWSEOFF_ALLOW_UNAUTHENTICATED_API=0
+DROWSEOFF_CORS_ORIGIN=
+DROWSEOFF_DEFAULT_SENSOR_DEVICE_ID=drowseoff-sensor
 
-REMOTE_PROVIDER=broadlink
-REMOTE_AUTO_ENABLED=1
+DROWSEOFF_REMOTE_PROVIDER=broadlink
+DROWSEOFF_REMOTE_AUTO_ENABLED=1
 BROADLINK_HOST=192.168.1.100
 BROADLINK_PACKET_PATH=/data/broadlink_tv_off.b64
 ```
 
 Do not commit `.env`, database files, or learned IR packet files.
 
-`TV_SLEEP_API_TOKEN` is optional for trusted LAN-only setups. If it is set, every
-API endpoint except `/api/health` requires the token through either:
+Generate a long local token with a password manager or a command such as:
+
+```bash
+openssl rand -hex 32
+```
+
+`DROWSEOFF_API_TOKEN` is required for normal use. Every API endpoint except
+`/api/health` requires the token through either:
 
 ```text
 X-TV-Sleep-Token: YOUR_TOKEN
@@ -53,9 +61,20 @@ Authorization: Bearer YOUR_TOKEN
 ```
 
 Set the same value in the firmware `API_TOKEN_VALUE`. In the dashboard, use the
-API Token button to save it in that browser. Do not expose this service directly
-to the public internet without a reverse proxy, TLS, and an access policy you
-trust.
+API Token button to save it in that browser. For quick trusted-LAN experiments,
+you can set `DROWSEOFF_ALLOW_UNAUTHENTICATED_API=1`, but that allows anyone who
+can reach the server to read data and trigger commands. `DROWSEOFF_CORS_ORIGIN`
+is blank by default; set it only when a separate web origin must call the API.
+Do not expose this service directly to the public internet without a reverse
+proxy, TLS, and an access policy you trust.
+
+When upgrading an older local install that had no token, either set
+`DROWSEOFF_API_TOKEN` and copy the same value into firmware `API_TOKEN_VALUE`, or
+temporarily set `DROWSEOFF_ALLOW_UNAUTHENTICATED_API=1` for a trusted LAN-only
+setup.
+
+Older `TV_SLEEP_*` environment variables are still accepted as a compatibility
+fallback, but new installs should use `DROWSEOFF_*`.
 
 ## Docker Startup
 
@@ -222,5 +241,5 @@ curl -X POST http://localhost:8010/api/readings \
 The default Docker database path is:
 
 ```text
-./data/tv_sleep.db
+./data/drowseoff.db
 ```

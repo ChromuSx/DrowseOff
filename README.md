@@ -1,4 +1,4 @@
-# TV Sleep Monitor
+# DrowseOff
 
 A DIY project that detects when someone is likely falling asleep while watching
 TV, stores the sensor readings locally, and turns the TV off through a remote
@@ -21,7 +21,7 @@ remote hub such as BroadLink, or by the ESP32 IR transmitter fallback.
 ```text
 LD2410C + ESP32 near the bed
   -> presence and stability readings over Wi-Fi
-  -> local API, dashboard, and SQLite database
+  -> DrowseOff API, dashboard, and SQLite database
   -> remote control backend near the TV
   -> TV OFF IR command
 ```
@@ -47,8 +47,8 @@ That file is ignored by Git. Create it from the example:
 cp firmware/esp32_sleep_sensor/secrets.example.h firmware/esp32_sleep_sensor/secrets.h
 ```
 
-Then set your real Wi-Fi name, Wi-Fi password, device ID, server URL, and
-optional API token.
+Then set your real Wi-Fi name, Wi-Fi password, device ID, server URL, and API
+token. The firmware token must match `DROWSEOFF_API_TOKEN` on the server.
 Open `firmware/esp32_sleep_sensor/esp32_sleep_sensor.ino` from the Arduino IDE.
 
 The server reads local deployment settings from:
@@ -74,9 +74,10 @@ http://YOUR_SERVER_IP:8010/
 See `tv-sleep-api/README.md` for Docker startup, API endpoints, and operational
 notes.
 
-Do not expose the dashboard/API directly to the public internet. If the service
-is reachable outside a trusted home LAN, set `TV_SLEEP_API_TOKEN` on the server
-and the same `API_TOKEN_VALUE` in the firmware secrets file.
+Do not expose the dashboard/API directly to the public internet. Set
+`DROWSEOFF_API_TOKEN` on the server and the same `API_TOKEN_VALUE` in the
+firmware secrets file. For quick LAN-only experiments without authentication,
+set `DROWSEOFF_ALLOW_UNAUTHENTICATED_API=1` explicitly in `.env`.
 
 ## Sleep Threshold
 

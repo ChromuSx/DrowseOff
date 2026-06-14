@@ -4,10 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <title>TV Sleep Monitor</title>
+  <title>DrowseOff</title>
   <script>
     (() => {
-      const savedTheme = localStorage.getItem('tvSleepTheme');
+      const savedTheme =
+        localStorage.getItem('drowseOffTheme') ||
+        localStorage.getItem('tvSleepTheme');
       if (savedTheme === 'light' || savedTheme === 'dark') {
         document.documentElement.dataset.theme = savedTheme;
       }
@@ -19,7 +21,7 @@
 <body>
   <header class="topbar">
     <div>
-      <h1>TV Sleep Monitor</h1>
+      <h1>DrowseOff</h1>
       <p class="page-subtitle">Session status, sensor readings, TV commands, and calibration in one place.</p>
     </div>
     <div class="header-actions">

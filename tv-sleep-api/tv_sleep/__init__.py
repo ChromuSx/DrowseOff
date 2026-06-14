@@ -1,1 +1,1 @@
-"""TV Sleep Monitor server package."""
+"""DrowseOff server package."""

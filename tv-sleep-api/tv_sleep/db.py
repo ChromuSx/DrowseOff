@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 from .config import DB_PATH, DEFAULT_SENSOR_DEVICE_ID
-from .time_utils import now_iso
+from .time_utils import now_iso, parse_iso_datetime
 
 
 READING_COLUMNS = [
@@ -563,6 +563,15 @@ def cancel_command(command_id):
     return get_command(command_id)
 
 
+def event_in_range(row, start, end):
+    event_ts = parse_iso_datetime(row.get("ts"))
+    return bool(event_ts and start <= event_ts <= end)
+
+
+def event_sort_key(row):
+    return parse_iso_datetime(row.get("ts")) or datetime.fromtimestamp(0).astimezone()
+
+
 def get_last_power_event(start=None, end=None):
     placeholders = ", ".join(["?"] * len(TV_OFF_SUCCESS_EVENT_TYPES))
     query = f"""
@@ -571,48 +580,57 @@ def get_last_power_event(start=None, end=None):
     """
     params = list(TV_OFF_SUCCESS_EVENT_TYPES)
 
-    if start and end:
-        query += " AND ts >= ? AND ts <= ?"
-        params.extend(
-            [
-                start.isoformat(timespec="seconds"),
-                end.isoformat(timespec="seconds"),
-            ]
-        )
-
-    query += " ORDER BY ts DESC LIMIT 1"
+    query += " ORDER BY id DESC"
 
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(query, params)
-        row = cursor.fetchone()
-        return row_to_dict(cursor, row) if row else None
+        events = [row_to_dict(cursor, row) for row in cursor.fetchall()]
+
+        if start and end:
+            events = [event for event in events if event_in_range(event, start, end)]
+
+        if not events:
+            return None
+
+        return max(events, key=event_sort_key)
 
 
 def count_power_events(start=None, end=None, conn=None):
     placeholders = ", ".join(["?"] * len(TV_OFF_SUCCESS_EVENT_TYPES))
-    query = f"""
-        SELECT COUNT(*) AS tv_commands
-        FROM events
-        WHERE event_type IN ({placeholders})
-    """
-    params = list(TV_OFF_SUCCESS_EVENT_TYPES)
-
     if start and end:
-        query += " AND ts >= ? AND ts <= ?"
-        params.extend(
-            [
-                start.isoformat(timespec="seconds"),
-                end.isoformat(timespec="seconds"),
-            ]
-        )
+        query = f"""
+            SELECT * FROM events
+            WHERE event_type IN ({placeholders})
+        """
+    else:
+        query = f"""
+            SELECT COUNT(*) AS tv_commands
+            FROM events
+            WHERE event_type IN ({placeholders})
+        """
+    params = list(TV_OFF_SUCCESS_EVENT_TYPES)
 
     if conn:
         cursor = conn.execute(query, params)
+        if start and end:
+            return sum(
+                1
+                for row in cursor.fetchall()
+                if event_in_range(row_to_dict(cursor, row), start, end)
+            )
+
         row = cursor.fetchone()
         return row_to_dict(cursor, row)["tv_commands"] if row else 0
 
     with sqlite3.connect(DB_PATH) as local_conn:
         cursor = local_conn.execute(query, params)
+        if start and end:
+            return sum(
+                1
+                for row in cursor.fetchall()
+                if event_in_range(row_to_dict(cursor, row), start, end)
+            )
+
         row = cursor.fetchone()
         return row_to_dict(cursor, row)["tv_commands"] if row else 0
 

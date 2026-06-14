@@ -1,6 +1,5 @@
 from .config import REMOTE_PROVIDER
 from .broadlink_remote import (
-    BroadlinkError,
     broadlink_probe,
     broadlink_status,
     check_learning,

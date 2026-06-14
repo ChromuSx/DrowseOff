@@ -7,6 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .config import (
+    API_TOKEN,
     DEFAULT_SENSOR_DEVICE_ID,
     HOST,
     PORT,
@@ -37,9 +38,7 @@ from .db import (
     insert_reading,
     update_settings,
 )
-from .broadlink_remote import BroadlinkError
 from .remote_control import (
-    RemoteControlError,
     remote_check_learning,
     remote_probe,
     remote_send_tv_off,
@@ -48,8 +47,6 @@ from .remote_control import (
 )
 from .reports import (
     get_calibration_report,
-    get_morning_report,
-    get_night_report,
     get_session_report,
     get_session_summary,
     get_sleep_series,
@@ -99,8 +96,6 @@ def try_send_remote_auto(payload):
                 "note": f"TV OFF sent by {result['provider']} x{result['repeat_count']}",
             }
         )
-    except (BroadlinkError, RemoteControlError):
-        return
     except Exception as exc:
         insert_event(
             {
@@ -114,11 +109,18 @@ def try_send_remote_auto(payload):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def send_auth_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "Content-Type, X-TV-Sleep-Token, Authorization",
+        )
+
     def send_json(self, status, payload):
         body = json.dumps(payload).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_auth_headers()
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -162,6 +164,7 @@ class Handler(BaseHTTPRequestHandler):
         body = buffer.getvalue().encode("utf-8-sig")
         self.send_response(200)
         self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_auth_headers()
         self.send_header(
             "Content-Disposition",
             f'attachment; filename="{filename}"',
@@ -177,15 +180,33 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         return json.loads(raw.decode("utf-8"))
 
+    def request_token(self):
+        auth_header = self.headers.get("Authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            return auth_header[7:].strip()
+        return self.headers.get("X-TV-Sleep-Token", "").strip()
+
+    def require_api_auth(self, path):
+        if not API_TOKEN or not path.startswith("/api/") or path == "/api/health":
+            return True
+
+        if self.request_token() == API_TOKEN:
+            return True
+
+        self.send_json(401, {"error": "authentication required"})
+        return False
+
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_auth_headers()
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
     def do_GET(self):
         parsed = urlparse(self.path)
+
+        if not self.require_api_auth(parsed.path):
+            return
 
         if parsed.path == "/":
             self.send_html(dashboard_html())
@@ -272,14 +293,6 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, get_summary())
             return
 
-        if parsed.path == "/api/night":
-            self.send_json(200, get_night_report())
-            return
-
-        if parsed.path == "/api/morning-report":
-            self.send_json(200, get_morning_report())
-            return
-
         if parsed.path == "/api/session":
             self.send_json(200, get_session_report())
             return
@@ -303,6 +316,9 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
 
         try:
+            if not self.require_api_auth(parsed.path):
+                return
+
             payload = self.read_json()
 
             if parsed.path == "/api/readings":
@@ -425,7 +441,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/clear":
-                if payload.get("confirm") not in ("CLEAR", "SVUOTA"):
+                if payload.get("confirm") != "CLEAR":
                     self.send_json(400, {"error": "missing confirmation"})
                     return
 

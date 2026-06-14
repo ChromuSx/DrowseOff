@@ -1,4 +1,5 @@
 const USER_LOCALE = navigator.language || 'en-US';
+const API_TOKEN_STORAGE_KEY = 'tvSleepApiToken';
 
 const yn = (value) => value ? '<span class="ok">YES</span>' : '<span class="bad">NO</span>';
 
@@ -124,6 +125,8 @@ const chartModeButtons = Array.from(document.querySelectorAll('[data-chart-mode]
 const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
 const powerTvButton = document.getElementById('powerTvButton');
 const powerRepeatButtons = Array.from(document.querySelectorAll('[data-power-repeat]'));
+const exportLinks = Array.from(document.querySelectorAll('[data-export-url]'));
+const apiTokenButton = document.getElementById('apiTokenButton');
 const clearDataButton = document.getElementById('clearDataButton');
 const settingsForm = document.getElementById('settingsForm');
 const autoModeToggle = document.getElementById('autoModeToggle');
@@ -180,6 +183,94 @@ function applyThemePreference(preference) {
 
 function setStatus(message) {
   statusMessage.textContent = message || '';
+}
+
+function apiToken() {
+  return localStorage.getItem(API_TOKEN_STORAGE_KEY) || '';
+}
+
+function authHeaders(headers = {}) {
+  const token = apiToken();
+  return token ? { ...headers, 'X-TV-Sleep-Token': token } : headers;
+}
+
+async function apiFetch(url, options = {}) {
+  const response = await fetch(url, {
+    ...options,
+    headers: authHeaders(options.headers || {})
+  });
+
+  if (response.status === 401) {
+    throw new Error('API token required or invalid. Use the API Token button.');
+  }
+
+  return response;
+}
+
+async function apiJson(url, options = {}) {
+  const response = await apiFetch(url, options);
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(result.error || `Request failed with status ${response.status}`);
+  }
+
+  return result;
+}
+
+function configureApiToken() {
+  const current = apiToken();
+  const value = window.prompt('API token. Leave empty to clear it from this browser.', current);
+
+  if (value === null) {
+    return;
+  }
+
+  const nextToken = value.trim();
+  if (nextToken) {
+    localStorage.setItem(API_TOKEN_STORAGE_KEY, nextToken);
+    setStatus('API token saved in this browser.');
+  } else {
+    localStorage.removeItem(API_TOKEN_STORAGE_KEY);
+    setStatus('API token cleared from this browser.');
+  }
+
+  refresh().catch((error) => {
+    setStatus(`Dashboard refresh error: ${error.message}`);
+  });
+}
+
+function filenameFromResponse(response, fallback) {
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  return match ? match[1] : fallback;
+}
+
+async function downloadExport(event) {
+  event.preventDefault();
+  const link = event.currentTarget;
+  const url = link.dataset.exportUrl || link.href;
+  setStatus('Preparing CSV export...');
+
+  try {
+    const response = await apiFetch(url);
+    if (!response.ok) {
+      throw new Error(`Export failed with status ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const downloadLink = document.createElement('a');
+    downloadLink.href = objectUrl;
+    downloadLink.download = filenameFromResponse(response, link.getAttribute('download') || 'export.csv');
+    document.body.appendChild(downloadLink);
+    downloadLink.click();
+    downloadLink.remove();
+    URL.revokeObjectURL(objectUrl);
+    setStatus('CSV export ready.');
+  } catch (error) {
+    setStatus(`Export error: ${error.message}`);
+  }
 }
 
 function selectTab(name) {
@@ -246,7 +337,7 @@ function setRemoteAvailability(online) {
 
 async function queuePowerCommand(repeatCount = 1) {
   if (latestRemote.ready) {
-    const response = await fetch('/api/remote/send-off', {
+    const response = await apiFetch('/api/remote/send-off', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -267,7 +358,7 @@ async function queuePowerCommand(repeatCount = 1) {
     throw new Error('ESP32 is offline: command was not queued');
   }
 
-  const response = await fetch('/api/commands', {
+  const response = await apiFetch('/api/commands', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -341,7 +432,7 @@ async function cancelPendingCommand(commandId) {
   setStatus(`Cancelling command #${commandId}...`);
 
   try {
-    const response = await fetch('/api/commands/cancel', {
+    const response = await apiFetch('/api/commands/cancel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: commandId })
@@ -376,7 +467,7 @@ async function clearData() {
   setStatus('Clearing data...');
 
   try {
-    const response = await fetch('/api/clear', {
+    const response = await apiFetch('/api/clear', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ confirm: 'CLEAR' })
@@ -388,7 +479,7 @@ async function clearData() {
     }
 
     await refresh();
-    setStatus(`Clear complete: ${result.readings_deleted} readings and ${result.commands_deleted} commands deleted.`);
+    setStatus(`Clear complete: ${result.readings_deleted} readings, ${result.events_deleted} events, and ${result.commands_deleted} commands deleted.`);
   } catch (error) {
     setStatus(`Clear error: ${error.message}`);
   } finally {
@@ -428,8 +519,8 @@ function renderHero(summary, session, settings) {
     detail.textContent = 'Once the sensor sees stable presence in bed, the session verdict will appear here.';
   } else if (powerEvent) {
     badge.className = 'status-pill ok';
-    badge.textContent = 'TV command sent';
-    title.textContent = `TV OFF requested at ${formatClock(powerEvent.ts)}`;
+    badge.textContent = 'TV OFF sent';
+    title.textContent = `TV OFF sent at ${formatClock(powerEvent.ts)}`;
     detail.textContent = `Recorded with score ${powerEvent.sleep_score ?? '-'} and distance ${powerEvent.dist_filtered ?? '-'} cm.`;
   } else if (score >= threshold && threshold > 0 && !autoOn) {
     badge.className = 'status-pill warn';
@@ -439,8 +530,8 @@ function renderHero(summary, session, settings) {
   } else if (score >= threshold && threshold > 0) {
     badge.className = 'status-pill warn';
     badge.textContent = 'Check needed';
-    title.textContent = 'Threshold reached, but no TV event is visible';
-    detail.textContent = 'Check events and commands: the issue may be IR range, transmitter placement, or event logging.';
+    title.textContent = 'Threshold reached, but no successful TV OFF event is visible';
+    detail.textContent = 'Check events and commands: the remote provider may be missing, offline, or failing to send.';
   } else {
     badge.textContent = 'Monitoring';
     title.textContent = 'No TV OFF in the recent session';
@@ -574,7 +665,7 @@ async function startRemoteLearning() {
   setStatus('Remote learning mode is starting...');
 
   try {
-    const response = await fetch('/api/remote/learn/start', { method: 'POST' });
+    const response = await apiFetch('/api/remote/learn/start', { method: 'POST' });
     const result = await response.json();
     if (!response.ok) {
       throw new Error(result.error || 'Learning mode did not start');
@@ -594,7 +685,7 @@ async function checkRemoteLearning() {
   setStatus('Checking received OFF code...');
 
   try {
-    const response = await fetch('/api/remote/learn/check', { method: 'POST' });
+    const response = await apiFetch('/api/remote/learn/check', { method: 'POST' });
     const result = await response.json();
     if (!response.ok) {
       throw new Error(result.error || 'OFF code was not received');
@@ -611,7 +702,7 @@ async function checkRemoteLearning() {
 }
 
 async function postSettings(payload) {
-  const response = await fetch('/api/settings', {
+  const response = await apiFetch('/api/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
@@ -1004,16 +1095,16 @@ function renderReadings(readings) {
 
 async function refresh() {
   const [summary, settings, remote, sessionSummary, calibration, session, series, events, commands, readings] = await Promise.all([
-    fetch('/api/summary').then((response) => response.json()),
-    fetch('/api/settings').then((response) => response.json()),
-    fetch('/api/remote/status').then((response) => response.json()),
-    fetch('/api/session-summary').then((response) => response.json()),
-    fetch('/api/calibration').then((response) => response.json()),
-    fetch('/api/session').then((response) => response.json()),
-    fetch('/api/sleep-series').then((response) => response.json()),
-    fetch('/api/events?limit=20').then((response) => response.json()),
-    fetch('/api/commands?limit=20').then((response) => response.json()),
-    fetch('/api/readings?limit=80').then((response) => response.json())
+    apiJson('/api/summary'),
+    apiJson('/api/settings'),
+    apiJson('/api/remote/status'),
+    apiJson('/api/session-summary'),
+    apiJson('/api/calibration'),
+    apiJson('/api/session'),
+    apiJson('/api/sleep-series'),
+    apiJson('/api/events?limit=20'),
+    apiJson('/api/commands?limit=20'),
+    apiJson('/api/readings?limit=80')
   ]);
 
   latestOnline = isDeviceOnline(summary.last_ts);
@@ -1058,6 +1149,10 @@ systemTheme.addEventListener('change', () => {
   }
 });
 
+apiTokenButton.addEventListener('click', configureApiToken);
+exportLinks.forEach((link) => {
+  link.addEventListener('click', downloadExport);
+});
 powerTvButton.addEventListener('click', sendPowerCommand);
 powerRepeatButtons.forEach((button) => {
   button.addEventListener('click', () => {

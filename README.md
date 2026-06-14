@@ -47,7 +47,8 @@ That file is ignored by Git. Create it from the example:
 cp firmware/esp32_sleep_sensor/secrets.example.h firmware/esp32_sleep_sensor/secrets.h
 ```
 
-Then set your real Wi-Fi name, Wi-Fi password, device ID, and server URL.
+Then set your real Wi-Fi name, Wi-Fi password, device ID, server URL, and
+optional API token.
 Open `firmware/esp32_sleep_sensor/esp32_sleep_sensor.ino` from the Arduino IDE.
 
 The server reads local deployment settings from:
@@ -73,6 +74,10 @@ http://YOUR_SERVER_IP:8010/
 See `tv-sleep-api/README.md` for Docker startup, API endpoints, and operational
 notes.
 
+Do not expose the dashboard/API directly to the public internet. If the service
+is reachable outside a trusted home LAN, set `TV_SLEEP_API_TOKEN` on the server
+and the same `API_TOKEN_VALUE` in the firmware secrets file.
+
 ## Sleep Threshold
 
 The default sleep threshold is `600`. It is the score the firmware must reach
@@ -95,6 +100,10 @@ OFF IR code through a BroadLink RM Mini device.
 The firmware still supports an ESP32 IR transmitter fallback for users who want
 a direct IR module instead of a network remote hub. In practice, a hub placed
 near the TV is usually more reliable than a weak IR LED near the bed.
+
+The dashboard distinguishes between a threshold attempt and a confirmed remote
+provider send event. If the remote backend fails, the failure is saved in the
+Events table instead of being silently ignored.
 
 ## Repository Hygiene
 

@@ -33,6 +33,7 @@ Then adjust the values for your home network:
 TZ=UTC
 TV_SLEEP_PORT=8010
 TV_SLEEP_DB=/data/tv_sleep.db
+TV_SLEEP_API_TOKEN=
 DEFAULT_SENSOR_DEVICE_ID=tv-sleep-sensor
 
 REMOTE_PROVIDER=broadlink
@@ -42,6 +43,19 @@ BROADLINK_PACKET_PATH=/data/broadlink_tv_off.b64
 ```
 
 Do not commit `.env`, database files, or learned IR packet files.
+
+`TV_SLEEP_API_TOKEN` is optional for trusted LAN-only setups. If it is set, every
+API endpoint except `/api/health` requires the token through either:
+
+```text
+X-TV-Sleep-Token: YOUR_TOKEN
+Authorization: Bearer YOUR_TOKEN
+```
+
+Set the same value in the firmware `API_TOKEN_VALUE`. In the dashboard, use the
+API Token button to save it in that browser. Do not expose this service directly
+to the public internet without a reverse proxy, TLS, and an access policy you
+trust.
 
 ## Docker Startup
 
@@ -88,13 +102,6 @@ GET  /api/export/events.csv
 GET  /api/export/commands.csv
 ```
 
-Legacy aliases are still available for compatibility:
-
-```text
-GET /api/night
-GET /api/morning-report
-```
-
 ## Remote Control API
 
 Provider-neutral endpoints:
@@ -112,6 +119,7 @@ Send TV OFF through the configured remote provider:
 ```bash
 curl -X POST http://localhost:8010/api/remote/send-off \
   -H "Content-Type: application/json" \
+  -H "X-TV-Sleep-Token: YOUR_TOKEN" \
   -d '{"repeat_count":1,"source":"manual"}'
 ```
 
@@ -120,6 +128,7 @@ Queue a TV OFF command for the ESP32 IR fallback:
 ```bash
 curl -X POST http://localhost:8010/api/commands \
   -H "Content-Type: application/json" \
+  -H "X-TV-Sleep-Token: YOUR_TOKEN" \
   -d '{"command_type":"tv_power","repeat_count":1,"source":"dashboard"}'
 ```
 
@@ -170,12 +179,17 @@ When `packet_saved=true` and `ready=true`, the dashboard TV OFF button uses the
 remote provider. Automatic TV OFF also uses the remote provider when the ESP32
 reports that the sleep threshold has been reached.
 
+The threshold event itself is stored as `tv_power_off_attempt`. A successful
+remote provider send is stored separately as `tv_off_remote_auto` or
+`tv_off_remote_manual`. Remote failures are stored as `tv_off_remote_failed`.
+
 ## Home Assistant
 
 The simplest Home Assistant integration is a REST command:
 
 ```text
 POST http://YOUR_SERVER_IP:8010/api/remote/send-off
+Header: X-TV-Sleep-Token: YOUR_TOKEN
 ```
 
 Payload:
@@ -192,6 +206,7 @@ is intentionally simple to debug.
 ```bash
 curl -X POST http://localhost:8010/api/readings \
   -H "Content-Type: application/json" \
+  -H "X-TV-Sleep-Token: YOUR_TOKEN" \
   -d '{"device_id":"test","radar_ok":true,"presence":true,"in_bed":true,"dist_raw":70,"dist_filtered":72,"sleep_score":10}'
 ```
 

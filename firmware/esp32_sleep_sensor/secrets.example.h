@@ -4,3 +4,4 @@
 #define WIFI_PASSWORD_VALUE "YOUR_WIFI_PASSWORD"
 #define DEVICE_ID_VALUE "tv-sleep-sensor"
 #define SERVER_BASE_URL_VALUE "http://YOUR_SERVER_IP:8010"
+#define API_TOKEN_VALUE ""

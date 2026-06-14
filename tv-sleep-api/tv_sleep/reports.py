@@ -202,18 +202,6 @@ def get_session_summary():
     }
 
 
-def get_night_report():
-    report = get_session_report()
-    report["night_power_event"] = report.get("session_power_event")
-    return report
-
-
-def get_morning_report():
-    report = get_session_summary()
-    report["night_power_event"] = report.get("session_power_event")
-    return report
-
-
 def get_calibration_report(limit=500):
     settings = get_settings()
     rows = list(reversed(get_readings(limit)))

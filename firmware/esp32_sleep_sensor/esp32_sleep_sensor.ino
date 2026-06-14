@@ -27,6 +27,10 @@
 #define SERVER_BASE_URL_VALUE "http://YOUR_SERVER_IP:8010"
 #endif
 
+#ifndef API_TOKEN_VALUE
+#define API_TOKEN_VALUE ""
+#endif
+
 ld2410 radar;
 
 const int RADAR_RX_PIN = 16;
@@ -40,6 +44,7 @@ const char WIFI_SSID[] = WIFI_SSID_VALUE;
 const char WIFI_PASSWORD[] = WIFI_PASSWORD_VALUE;
 const char DEVICE_ID[] = DEVICE_ID_VALUE;
 const char SERVER_BASE_URL[] = SERVER_BASE_URL_VALUE;
+const char API_TOKEN[] = API_TOKEN_VALUE;
 const unsigned long SERVER_UPLOAD_INTERVAL_MS = 10000;
 const unsigned long COMMAND_CHECK_INTERVAL_MS = 5000;
 const unsigned long SETTINGS_SYNC_INTERVAL_MS = 60000;
@@ -83,6 +88,10 @@ bool wifiConfigured() {
 
 bool serverConfigured() {
   return strcmp(SERVER_BASE_URL, "http://YOUR_SERVER_IP:8010") != 0 && strlen(SERVER_BASE_URL) > 0;
+}
+
+bool apiTokenConfigured() {
+  return strlen(API_TOKEN) > 0;
 }
 
 String serverUrl(const char* path) {
@@ -211,6 +220,10 @@ bool postJson(const String& url, const String& json) {
   }
 
   http.addHeader("Content-Type", "application/json");
+  if (apiTokenConfigured()) {
+    http.addHeader("X-TV-Sleep-Token", API_TOKEN);
+  }
+
   int statusCode = http.POST(json);
   http.end();
 
@@ -227,6 +240,10 @@ bool getJson(const String& url, String& response) {
 
   if (!http.begin(url)) {
     return false;
+  }
+
+  if (apiTokenConfigured()) {
+    http.addHeader("X-TV-Sleep-Token", API_TOKEN);
   }
 
   int statusCode = http.GET();

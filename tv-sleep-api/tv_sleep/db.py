@@ -556,7 +556,7 @@ def get_last_power_event(start=None, end=None):
     query = """
         SELECT * FROM events
         WHERE event_type IN (
-            'tv_power_off_attempt',
+            'tv_power_manual',
             'tv_power_broadlink_auto',
             'tv_power_broadlink_manual',
             'tv_off_remote_auto',
@@ -591,13 +591,28 @@ def get_summary():
                 COUNT(*) AS readings,
                 MAX(ts) AS last_ts,
                 MAX(sleep_score) AS max_sleep_score,
-                SUM(CASE WHEN tv_command_sent = 1 THEN 1 ELSE 0 END) AS tv_commands
+                0 AS tv_commands
             FROM readings
             """
         )
         summary = row_to_dict(cursor, cursor.fetchone())
 
         cursor = conn.execute("SELECT COUNT(*) AS events FROM events")
+        summary.update(row_to_dict(cursor, cursor.fetchone()))
+
+        cursor = conn.execute(
+            """
+            SELECT COUNT(*) AS tv_commands
+            FROM events
+            WHERE event_type IN (
+                'tv_power_manual',
+                'tv_power_broadlink_auto',
+                'tv_power_broadlink_manual',
+                'tv_off_remote_auto',
+                'tv_off_remote_manual'
+            )
+            """
+        )
         summary.update(row_to_dict(cursor, cursor.fetchone()))
 
         cursor = conn.execute(

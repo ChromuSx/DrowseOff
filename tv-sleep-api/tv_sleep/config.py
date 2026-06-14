@@ -9,6 +9,7 @@ STATIC_DIR = BASE_DIR / "static"
 DB_PATH = os.environ.get("TV_SLEEP_DB", "/data/tv_sleep.db")
 HOST = os.environ.get("TV_SLEEP_HOST", "0.0.0.0")
 PORT = int(os.environ.get("TV_SLEEP_PORT", "8010"))
+API_TOKEN = os.environ.get("TV_SLEEP_API_TOKEN", "").strip()
 DEFAULT_SENSOR_DEVICE_ID = os.environ.get(
     "DEFAULT_SENSOR_DEVICE_ID",
     "tv-sleep-sensor",

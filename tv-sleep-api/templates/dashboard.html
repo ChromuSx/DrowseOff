@@ -28,7 +28,8 @@
         <button class="theme-option" type="button" data-theme-option="light">Light</button>
         <button class="theme-option" type="button" data-theme-option="dark">Dark</button>
       </div>
-      <a class="secondary-button" href="/api/export/readings.csv" download>Readings CSV</a>
+      <button class="secondary-button" type="button" id="apiTokenButton">API Token</button>
+      <a class="secondary-button" href="/api/export/readings.csv" data-export-url="/api/export/readings.csv" download>Readings CSV</a>
     </div>
   </header>
 
@@ -279,9 +280,9 @@
 
     <section class="tab-panel" data-tab-panel="data">
       <div class="data-actions">
-        <a class="secondary-button" href="/api/export/readings.csv" download>Readings CSV</a>
-        <a class="secondary-button" href="/api/export/events.csv" download>Events CSV</a>
-        <a class="secondary-button" href="/api/export/commands.csv" download>Commands CSV</a>
+        <a class="secondary-button" href="/api/export/readings.csv" data-export-url="/api/export/readings.csv" download>Readings CSV</a>
+        <a class="secondary-button" href="/api/export/events.csv" data-export-url="/api/export/events.csv" download>Events CSV</a>
+        <a class="secondary-button" href="/api/export/commands.csv" data-export-url="/api/export/commands.csv" download>Commands CSV</a>
         <button class="danger-button" type="button" id="clearDataButton">Clear readings</button>
       </div>
 

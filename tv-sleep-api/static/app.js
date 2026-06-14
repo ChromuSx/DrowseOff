@@ -1,12 +1,9 @@
 const USER_LOCALE = navigator.language || 'en-US';
 const API_TOKEN_STORAGE_KEY = 'drowseOffApiToken';
-const LEGACY_API_TOKEN_STORAGE_KEY = 'tvSleepApiToken';
 const THEME_STORAGE_KEY = 'drowseOffTheme';
-const LEGACY_THEME_STORAGE_KEY = 'tvSleepTheme';
 const TAB_STORAGE_KEY = 'drowseOffTab';
-const LEGACY_TAB_STORAGE_KEY = 'tvSleepTab';
 const CHART_STORAGE_KEY = 'drowseOffChart';
-const LEGACY_CHART_STORAGE_KEY = 'tvSleepChart';
+const DEVICE_STORAGE_KEY = 'drowseOffDevice';
 
 const yn = (value) => value ? '<span class="ok">YES</span>' : '<span class="bad">NO</span>';
 
@@ -78,12 +75,9 @@ const formatRemaining = (value) => {
 
 const eventTypeLabel = (eventType) => {
   const labels = {
-    tv_power_off_attempt: 'TV OFF threshold reached',
-    tv_power_manual: 'TV OFF sent from dashboard',
-    tv_power_manual_failed: 'Dashboard TV OFF failed',
-    tv_power_broadlink_auto: 'TV OFF via BroadLink',
-    tv_power_broadlink_manual: 'Dashboard TV OFF via BroadLink',
-    tv_power_broadlink_failed: 'BroadLink remote failed',
+    tv_off_threshold_reached: 'TV OFF threshold reached',
+    tv_off_esp32_manual: 'TV OFF sent from dashboard',
+    tv_off_esp32_manual_failed: 'Dashboard TV OFF failed',
     tv_off_remote_auto: 'TV OFF via remote',
     tv_off_remote_manual: 'Dashboard TV OFF via remote',
     tv_off_remote_failed: 'Remote TV OFF failed',
@@ -94,7 +88,6 @@ const eventTypeLabel = (eventType) => {
 
 const commandTypeLabel = (commandType) => {
   const labels = {
-    tv_power: 'TV OFF',
     tv_off: 'TV OFF'
   };
   return labels[commandType] || commandType || '-';
@@ -130,6 +123,7 @@ const themeButtons = Array.from(document.querySelectorAll('[data-theme-option]')
 const tabButtons = Array.from(document.querySelectorAll('[data-tab-target]'));
 const tabPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));
 const chartModeButtons = Array.from(document.querySelectorAll('[data-chart-mode]'));
+const deviceFilter = document.getElementById('deviceFilter');
 const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
 const powerTvButton = document.getElementById('powerTvButton');
 const powerRepeatButtons = Array.from(document.querySelectorAll('[data-power-repeat]'));
@@ -166,6 +160,7 @@ let latestCalibration = {};
 let latestReadings = [];
 let latestOnline = false;
 let chartMode = 'score';
+let selectedDeviceId = localStorage.getItem(DEVICE_STORAGE_KEY) || 'all';
 let powerArmed = false;
 let powerArmedTimer = null;
 let clearArmed = false;
@@ -175,20 +170,16 @@ let calibrationTimer = null;
 let calibrationSeconds = 0;
 
 function currentThemePreference() {
-  const savedTheme =
-    localStorage.getItem(THEME_STORAGE_KEY) ||
-    localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
+  const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
   return savedTheme === 'light' || savedTheme === 'dark' ? savedTheme : 'system';
 }
 
 function applyThemePreference(preference) {
   if (preference === 'system') {
     localStorage.removeItem(THEME_STORAGE_KEY);
-    localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
     document.documentElement.removeAttribute('data-theme');
   } else {
     localStorage.setItem(THEME_STORAGE_KEY, preference);
-    localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
     document.documentElement.dataset.theme = preference;
   }
 
@@ -214,11 +205,7 @@ class ApiAuthError extends Error {
 }
 
 function apiToken() {
-  return (
-    localStorage.getItem(API_TOKEN_STORAGE_KEY) ||
-    localStorage.getItem(LEGACY_API_TOKEN_STORAGE_KEY) ||
-    ''
-  );
+  return localStorage.getItem(API_TOKEN_STORAGE_KEY) || '';
 }
 
 function saveApiToken(token) {
@@ -226,16 +213,29 @@ function saveApiToken(token) {
 
   if (nextToken) {
     localStorage.setItem(API_TOKEN_STORAGE_KEY, nextToken);
-    localStorage.removeItem(LEGACY_API_TOKEN_STORAGE_KEY);
   } else {
     localStorage.removeItem(API_TOKEN_STORAGE_KEY);
-    localStorage.removeItem(LEGACY_API_TOKEN_STORAGE_KEY);
   }
 }
 
 function authHeaders(headers = {}) {
   const token = apiToken();
-  return token ? { ...headers, 'X-TV-Sleep-Token': token } : headers;
+  return token ? { ...headers, 'X-DrowseOff-Token': token } : headers;
+}
+
+function apiUrl(path, params = {}) {
+  const url = new URL(path, window.location.origin);
+  if (selectedDeviceId && selectedDeviceId !== 'all') {
+    url.searchParams.set('device_id', selectedDeviceId);
+  }
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      url.searchParams.set(key, value);
+    }
+  });
+
+  return `${url.pathname}${url.search}`;
 }
 
 async function apiFetch(url, options = {}) {
@@ -327,7 +327,7 @@ function filenameFromResponse(response, fallback) {
 async function downloadExport(event) {
   event.preventDefault();
   const link = event.currentTarget;
-  const url = link.dataset.exportUrl || link.href;
+  const url = apiUrl(link.dataset.exportUrl || link.getAttribute('href'));
   setStatus('Preparing CSV export...');
 
   try {
@@ -366,7 +366,6 @@ function selectTab(name) {
   });
 
   localStorage.setItem(TAB_STORAGE_KEY, name);
-  localStorage.removeItem(LEGACY_TAB_STORAGE_KEY);
   setTimeout(() => renderSleepChart(latestSeries, latestSession.threshold), 0);
 }
 
@@ -376,6 +375,48 @@ function selectChartMode(mode) {
     button.setAttribute('aria-pressed', button.dataset.chartMode === chartMode ? 'true' : 'false');
   });
   renderSleepChart(latestSeries, latestSession.threshold);
+}
+
+function updateExportLinks() {
+  exportLinks.forEach((link) => {
+    const baseUrl = link.dataset.exportUrl || link.getAttribute('href');
+    link.href = apiUrl(baseUrl);
+  });
+}
+
+function renderDeviceFilter(payload) {
+  const devices = Array.isArray(payload?.devices) ? payload.devices : [];
+  const options = ['all', ...devices.filter((device) => device && device !== 'all')];
+
+  if (!options.includes(selectedDeviceId)) {
+    selectedDeviceId = 'all';
+    localStorage.removeItem(DEVICE_STORAGE_KEY);
+  }
+
+  deviceFilter.innerHTML = options.map((device) => `
+    <option value="${safe(device)}">${device === 'all' ? 'All devices' : safe(device)}</option>
+  `).join('');
+  deviceFilter.value = selectedDeviceId;
+  updateExportLinks();
+}
+
+async function selectDevice() {
+  selectedDeviceId = deviceFilter.value || 'all';
+  if (selectedDeviceId === 'all') {
+    localStorage.removeItem(DEVICE_STORAGE_KEY);
+  } else {
+    localStorage.setItem(DEVICE_STORAGE_KEY, selectedDeviceId);
+  }
+
+  setStatus(`Loading ${selectedDeviceId === 'all' ? 'all devices' : selectedDeviceId}...`);
+  await refresh();
+  setStatus('');
+}
+
+function selectedDevicePayload() {
+  return selectedDeviceId && selectedDeviceId !== 'all'
+    ? { device_id: selectedDeviceId }
+    : {};
 }
 
 function resetClearButton() {
@@ -412,8 +453,8 @@ function setRemoteAvailability(online) {
   });
 
   document.getElementById('powerControlStatus').textContent = remoteReady
-    ? 'Remote configured'
-    : (online ? 'ESP32 online' : 'Remote offline');
+    ? 'Remote ready'
+    : (online ? 'ESP32 fallback available' : 'Remote offline');
 }
 
 async function queuePowerCommand(repeatCount = 1) {
@@ -422,6 +463,7 @@ async function queuePowerCommand(repeatCount = 1) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        ...selectedDevicePayload(),
         repeat_count: repeatCount,
         source: 'dashboard'
       })
@@ -443,7 +485,8 @@ async function queuePowerCommand(repeatCount = 1) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      command_type: 'tv_power',
+      command_type: 'tv_off',
+      ...selectedDevicePayload(),
       repeat_count: repeatCount,
       source: 'dashboard',
       note: `Requested from dashboard x${repeatCount}`
@@ -732,16 +775,25 @@ function renderRemoteStatus(status) {
   latestRemote = status || {};
   const statusLabel = document.getElementById('remoteBackendStatus');
   const detail = document.getElementById('remoteBackendDetail');
+  const provider = latestRemote.provider || 'remote';
+  const host = latestRemote.host || '';
+  const probeDetail = latestRemote.last_probe_at
+    ? `last probe ${formatTime(latestRemote.last_probe_at)}`
+    : 'not probed yet';
+  const remoteKnownDown = Boolean(host && latestRemote.connected === false && latestRemote.last_probe_error);
 
   if (!latestRemote.library_ready) {
     statusLabel.innerHTML = '<span class="bad">Library missing</span>';
     detail.textContent = latestRemote.library_error || 'Remote backend is not available.';
   } else if (latestRemote.ready) {
-    statusLabel.innerHTML = '<span class="ok">Configured</span>';
-    detail.textContent = `${latestRemote.provider || 'remote'} ${latestRemote.host || ''} - OFF code saved`;
+    statusLabel.innerHTML = '<span class="ok">Ready</span>';
+    detail.textContent = `${provider} ${host} - reachable, OFF code saved (${probeDetail})`;
+  } else if (remoteKnownDown) {
+    statusLabel.innerHTML = '<span class="bad">Unreachable</span>';
+    detail.textContent = latestRemote.last_probe_error || `${provider} ${host} did not respond`;
   } else if (latestRemote.host) {
     statusLabel.innerHTML = '<span class="warn">Needs learning</span>';
-    detail.textContent = `${latestRemote.host} - OFF code not saved`;
+    detail.textContent = `${provider} ${host} - OFF code not saved (${probeDetail})`;
   } else {
     statusLabel.innerHTML = '<span class="bad">Not configured</span>';
     detail.textContent = 'Remote host is missing.';
@@ -761,6 +813,9 @@ function renderOperationsRail(summary, settings, remote, session) {
     ? `last seen ${formatTime(summary.last_ts)}`
     : 'no recent reading';
   const remoteReady = Boolean(remote.ready);
+  const remoteConfigured = Boolean(remote.configured);
+  const remoteConnected = remote.connected === true;
+  const remoteKnownDown = Boolean(remote.host && remote.connected === false && remote.last_probe_error);
   const powerEvent = session.session_power_event;
   const threshold = Number(session.threshold || settings.sleep_threshold || 0);
   const score = Number(session.max_sleep_score || summary.max_sleep_score || 0);
@@ -772,7 +827,17 @@ function renderOperationsRail(summary, settings, remote, session) {
     : 'host not configured';
 
   setPill('componentSensorState', latestOnline ? 'up' : 'down', latestOnline ? 'ok' : 'bad');
-  setPill('componentRemoteState', remoteReady ? 'configured' : 'check', remoteReady ? 'ok' : 'warn');
+  if (remoteReady) {
+    setPill('componentRemoteState', 'ready', 'ok');
+  } else if (remoteConfigured && !remoteConnected) {
+    setPill('componentRemoteState', 'down', 'bad');
+  } else if (remoteKnownDown) {
+    setPill('componentRemoteState', 'down', 'bad');
+  } else if (remote.host) {
+    setPill('componentRemoteState', 'learn', 'warn');
+  } else {
+    setPill('componentRemoteState', 'check', 'warn');
+  }
   setPill('componentModeState', autoOn ? 'auto' : 'monitor', autoOn ? 'ok' : 'warn');
   setPill('topbarApiState', 'API local', 'ok');
   setPill('topbarRefreshState', 'refresh 10s', 'neutral');
@@ -784,6 +849,10 @@ function renderOperationsRail(summary, settings, remote, session) {
   if (!latestOnline) {
     alertBox.classList.add('bad');
     alertBox.innerHTML = '<strong>Sensor offline</strong><p>No recent ESP32 reading. Check power, Wi-Fi, or API token configuration.</p>';
+    alertCount.textContent = '1 grouped';
+  } else if ((remoteConfigured && !remoteConnected) || remoteKnownDown) {
+    alertBox.classList.add('bad');
+    alertBox.innerHTML = '<strong>Remote unreachable</strong><p>The remote host is configured, but the latest probe failed. TV OFF may fall back to ESP32 IR or fail.</p>';
     alertCount.textContent = '1 grouped';
   } else if (!remoteReady) {
     alertBox.classList.add('warn');
@@ -1233,17 +1302,20 @@ function renderReadings(readings) {
 }
 
 async function refresh() {
+  const devices = await apiJson('/api/devices');
+  renderDeviceFilter(devices);
+
   const [summary, settings, remote, sessionSummary, calibration, session, series, events, commands, readings] = await Promise.all([
-    apiJson('/api/summary'),
+    apiJson(apiUrl('/api/summary')),
     apiJson('/api/settings'),
     apiJson('/api/remote/status'),
-    apiJson('/api/session-summary'),
-    apiJson('/api/calibration'),
-    apiJson('/api/session'),
-    apiJson('/api/sleep-series'),
-    apiJson('/api/events?limit=20'),
-    apiJson('/api/commands?limit=20'),
-    apiJson('/api/readings?limit=80')
+    apiJson(apiUrl('/api/session-summary')),
+    apiJson(apiUrl('/api/calibration')),
+    apiJson(apiUrl('/api/session')),
+    apiJson(apiUrl('/api/sleep-series')),
+    apiJson(apiUrl('/api/events', { limit: 20 })),
+    apiJson(apiUrl('/api/commands', { limit: 20 })),
+    apiJson(apiUrl('/api/readings', { limit: 80 }))
   ]);
 
   latestOnline = isDeviceOnline(summary.last_ts);
@@ -1288,6 +1360,12 @@ chartModeButtons.forEach((button) => {
   });
 });
 
+deviceFilter.addEventListener('change', () => {
+  selectDevice().catch((error) => {
+    handleRefreshError(error, 'Device filter error');
+  });
+});
+
 systemTheme.addEventListener('change', () => {
   if (currentThemePreference() === 'system') {
     applyThemePreference('system');
@@ -1326,19 +1404,14 @@ window.addEventListener('resize', () => renderSleepChart(latestSeries, latestSes
 
 applyThemePreference(currentThemePreference());
 selectTab(
-  localStorage.getItem(TAB_STORAGE_KEY) ||
-  localStorage.getItem(LEGACY_TAB_STORAGE_KEY) ||
-  'overview'
+  localStorage.getItem(TAB_STORAGE_KEY) || 'overview'
 );
 selectChartMode(
-  localStorage.getItem(CHART_STORAGE_KEY) ||
-  localStorage.getItem(LEGACY_CHART_STORAGE_KEY) ||
-  'score'
+  localStorage.getItem(CHART_STORAGE_KEY) || 'score'
 );
 chartModeButtons.forEach((button) => {
   button.addEventListener('click', () => {
     localStorage.setItem(CHART_STORAGE_KEY, chartMode);
-    localStorage.removeItem(LEGACY_CHART_STORAGE_KEY);
   });
 });
 updateCalibrationWizard();

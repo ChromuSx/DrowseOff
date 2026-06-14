@@ -6,5 +6,5 @@
 #define SERVER_BASE_URL_VALUE "http://YOUR_SERVER_IP:8010"
 #define API_TOKEN_VALUE "replace-with-the-same-token"
 #define OTA_ENABLED_VALUE false
-#define OTA_PASSWORD_VALUE "replace-with-a-local-ota-password"
+#define OTA_PASSWORD_VALUE ""
 #define CONFIGURE_RADAR_ON_BOOT_VALUE true

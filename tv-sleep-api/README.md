@@ -1,5 +1,7 @@
 # DrowseOff API
 
+![DrowseOff logo](static/brand/drowseoff-logo.png)
+
 Local API and dashboard for DrowseOff. It receives ESP32 sensor readings,
 stores them in SQLite, renders the web dashboard, and can send a TV OFF command
 through a configurable remote backend.
@@ -15,6 +17,7 @@ tv_sleep/remote_control.py     # provider-neutral remote control facade
 tv_sleep/broadlink_remote.py   # BroadLink implementation
 tv_sleep/server.py             # HTTP server, API routing, static files
 templates/dashboard.html
+static/brand/                  # logo and app icons
 static/app.css
 static/app.js
 ```
@@ -42,6 +45,7 @@ DROWSEOFF_REMOTE_PROVIDER=broadlink
 DROWSEOFF_REMOTE_AUTO_ENABLED=1
 BROADLINK_HOST=192.168.1.100
 BROADLINK_PACKET_PATH=/data/broadlink_tv_off.b64
+BROADLINK_STATUS_PROBE_INTERVAL=60
 ```
 
 Do not commit `.env`, database files, or learned IR packet files.
@@ -56,7 +60,7 @@ openssl rand -hex 32
 `/api/health` requires the token through either:
 
 ```text
-X-TV-Sleep-Token: YOUR_TOKEN
+X-DrowseOff-Token: YOUR_TOKEN
 Authorization: Bearer YOUR_TOKEN
 ```
 
@@ -73,8 +77,7 @@ When upgrading an older local install that had no token, either set
 temporarily set `DROWSEOFF_ALLOW_UNAUTHENTICATED_API=1` for a trusted LAN-only
 setup.
 
-Older `TV_SLEEP_*` environment variables are still accepted as a compatibility
-fallback, but new installs should use `DROWSEOFF_*`.
+DrowseOff uses `DROWSEOFF_*` environment variables for server configuration.
 
 ## Docker Startup
 
@@ -97,10 +100,13 @@ Open the dashboard at:
 http://YOUR_SERVER_IP:8010/
 ```
 
+The Docker image includes a healthcheck against `/api/health`.
+
 ## Main API Endpoints
 
 ```text
 GET  /api/health
+GET  /api/devices
 GET  /api/latest
 GET  /api/summary
 GET  /api/session
@@ -121,6 +127,10 @@ GET  /api/export/events.csv
 GET  /api/export/commands.csv
 ```
 
+Most read endpoints accept an optional `device_id` query parameter, for example
+`/api/session?device_id=drowseoff-sensor`. Without `device_id`, the dashboard
+and API return the combined view across all stored devices.
+
 ## Remote Control API
 
 Provider-neutral endpoints:
@@ -138,7 +148,7 @@ Send TV OFF through the configured remote provider:
 ```bash
 curl -X POST http://localhost:8010/api/remote/send-off \
   -H "Content-Type: application/json" \
-  -H "X-TV-Sleep-Token: YOUR_TOKEN" \
+  -H "X-DrowseOff-Token: YOUR_TOKEN" \
   -d '{"repeat_count":1,"source":"manual"}'
 ```
 
@@ -147,8 +157,8 @@ Queue a TV OFF command for the ESP32 IR fallback:
 ```bash
 curl -X POST http://localhost:8010/api/commands \
   -H "Content-Type: application/json" \
-  -H "X-TV-Sleep-Token: YOUR_TOKEN" \
-  -d '{"command_type":"tv_power","repeat_count":1,"source":"dashboard"}'
+  -H "X-DrowseOff-Token: YOUR_TOKEN" \
+  -d '{"command_type":"tv_off","repeat_count":1,"source":"dashboard"}'
 ```
 
 ## ESP32 Firmware
@@ -188,8 +198,8 @@ configuration matches the new placement.
 The firmware also sends `score_reason`, a human-readable reason for score
 changes, such as `+1 stable and still` or `-8 strong movement`.
 
-The current dashboard and reports are intended for one primary sensor. Readings
-include `device_id`, but multi-device filters are not implemented yet.
+The dashboard Device filter, report endpoints, CSV exports, and calibration
+view can be scoped to one `device_id`.
 
 ## BroadLink Workflow
 
@@ -200,6 +210,7 @@ DROWSEOFF_REMOTE_PROVIDER=broadlink
 DROWSEOFF_REMOTE_AUTO_ENABLED=1
 BROADLINK_HOST=192.168.1.100
 BROADLINK_PACKET_PATH=/data/broadlink_tv_off.b64
+BROADLINK_STATUS_PROBE_INTERVAL=60
 ```
 
 Learning flow from the dashboard:
@@ -209,15 +220,16 @@ Learning flow from the dashboard:
 3. Send the TV OFF command toward the BroadLink device.
 4. Press Save OFF Code.
 
-When the remote provider is configured with a host and saved packet, the
-dashboard TV OFF button uses the remote provider. Automatic TV OFF also uses the
-remote provider when the ESP32 reports that the sleep threshold has been
-reached. A real send/probe is still the best way to verify reachability.
+The dashboard treats a remote as ready only when it is configured with a host,
+has a saved OFF packet, and the latest connectivity probe succeeded.
+`BROADLINK_STATUS_PROBE_INTERVAL` controls how often `/api/remote/status`
+refreshes that probe cache. A real send remains the strongest end-to-end test.
 
-The threshold event itself is stored as `tv_power_off_attempt`. A successful
+The threshold event itself is stored as `tv_off_threshold_reached`. A successful
 remote provider send is stored separately as `tv_off_remote_auto` or
 `tv_off_remote_manual`. A successful direct ESP32 automatic IR send is stored as
-`tv_off_esp32_auto`. Remote failures are stored as `tv_off_remote_failed`.
+`tv_off_esp32_auto`; a manual dashboard command completed by the ESP32 is stored
+as `tv_off_esp32_manual`. Remote failures are stored as `tv_off_remote_failed`.
 
 ## Home Assistant
 
@@ -225,7 +237,7 @@ The simplest Home Assistant integration is a REST command:
 
 ```text
 POST http://YOUR_SERVER_IP:8010/api/remote/send-off
-Header: X-TV-Sleep-Token: YOUR_TOKEN
+Header: X-DrowseOff-Token: YOUR_TOKEN
 ```
 
 Payload:
@@ -242,7 +254,7 @@ is intentionally simple to debug.
 ```bash
 curl -X POST http://localhost:8010/api/readings \
   -H "Content-Type: application/json" \
-  -H "X-TV-Sleep-Token: YOUR_TOKEN" \
+  -H "X-DrowseOff-Token: YOUR_TOKEN" \
   -d '{"device_id":"test","radar_ok":true,"presence":true,"in_bed":true,"dist_raw":70,"dist_filtered":72,"sleep_score":10}'
 ```
 

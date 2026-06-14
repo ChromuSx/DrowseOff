@@ -1,5 +1,7 @@
 # DrowseOff
 
+![DrowseOff logo](tv-sleep-api/static/brand/drowseoff-logo.png)
+
 A DIY project that detects when someone is likely falling asleep while watching
 TV, stores the sensor readings locally, and turns the TV off through a remote
 control backend.
@@ -104,9 +106,9 @@ users to increase the bed range for their own layout. If you change
 `distance_max_cm` significantly, restart the ESP32 so the radar hardware range
 is recalculated.
 
-The current dashboard and reports are optimized for one primary bedroom sensor.
-The database stores `device_id`, but multi-sensor filtering is still a roadmap
-item.
+The dashboard can filter readings and reports by `device_id`, so a single
+server can store multiple sensors while still letting each user focus on one
+bedroom device at a time.
 
 ## Remote Control Backends
 
@@ -124,6 +126,10 @@ transmitter is connected to the ESP32 and aimed at the TV.
 The dashboard distinguishes between a threshold attempt and a confirmed remote
 provider send event. If the remote backend fails, the failure is saved in the
 Events table instead of being silently ignored.
+
+Remote backend status is based on configuration plus a periodic connectivity
+probe. A saved IR code alone is not considered ready unless the remote device
+also responds.
 
 ## Repository Hygiene
 

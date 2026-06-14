@@ -30,6 +30,7 @@ from .db import (
     ensure_db,
     get_commands,
     get_commands_for_export,
+    get_device_ids,
     get_events,
     get_events_for_export,
     get_latest,
@@ -66,6 +67,16 @@ def limited_query_param(query, name, default, maximum):
     except ValueError:
         value = default
     return max(1, min(value, maximum))
+
+
+def query_device_id(query):
+    raw = parse_qs(query).get("device_id", [""])[0].strip()
+    return raw if raw and raw != "all" else None
+
+
+def payload_device_id(payload, fallback):
+    raw = str(payload.get("device_id") or "").strip()
+    return raw if raw and raw != "all" else fallback
 
 
 def int_payload(payload, name, default=0):
@@ -106,7 +117,7 @@ def try_send_remote_auto(payload):
         result = remote_send_tv_off(1)
         event_id = insert_event(
             {
-                "device_id": f"remote-{result['provider']}",
+                "device_id": payload.get("device_id") or f"remote-{result['provider']}",
                 "event_type": "tv_off_remote_auto",
                 "sleep_score": payload.get("sleep_score"),
                 "dist_filtered": payload.get("dist_filtered"),
@@ -122,7 +133,7 @@ def try_send_remote_auto(payload):
     except Exception as exc:
         event_id = insert_event(
             {
-                "device_id": "remote",
+                "device_id": payload.get("device_id") or "remote",
                 "event_type": "tv_off_remote_failed",
                 "sleep_score": payload.get("sleep_score"),
                 "dist_filtered": payload.get("dist_filtered"),
@@ -166,7 +177,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_header(
             "Access-Control-Allow-Headers",
-            "Content-Type, X-TV-Sleep-Token, Authorization",
+            "Content-Type, X-DrowseOff-Token, X-TV-Sleep-Token, Authorization",
         )
 
     def send_json(self, status, payload):
@@ -247,7 +258,8 @@ class Handler(BaseHTTPRequestHandler):
         auth_header = self.headers.get("Authorization", "")
         if auth_header.lower().startswith("bearer "):
             return auth_header[7:].strip()
-        return self.headers.get("X-TV-Sleep-Token", "").strip()
+        drowseoff_token = self.headers.get("X-DrowseOff-Token", "").strip()
+        return drowseoff_token or self.headers.get("X-TV-Sleep-Token", "").strip()
 
     def require_api_auth(self, path):
         if not path.startswith("/api/") or path == "/api/health":
@@ -299,22 +311,26 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/latest":
-            self.send_json(200, get_latest() or {})
+            self.send_json(200, get_latest(query_device_id(parsed.query)) or {})
             return
 
         if parsed.path == "/api/readings":
             limit = limited_query_param(parsed.query, "limit", 100, 1000)
-            self.send_json(200, get_readings(limit))
+            self.send_json(200, get_readings(limit, query_device_id(parsed.query)))
             return
 
         if parsed.path == "/api/events":
             limit = limited_query_param(parsed.query, "limit", 100, 1000)
-            self.send_json(200, get_events(limit))
+            self.send_json(200, get_events(limit, query_device_id(parsed.query)))
             return
 
         if parsed.path == "/api/commands":
             limit = limited_query_param(parsed.query, "limit", 100, 1000)
-            self.send_json(200, get_commands(limit))
+            self.send_json(200, get_commands(limit, query_device_id(parsed.query)))
+            return
+
+        if parsed.path == "/api/devices":
+            self.send_json(200, {"devices": get_device_ids()})
             return
 
         if parsed.path == "/api/commands/next":
@@ -346,7 +362,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/export/readings.csv":
             self.send_csv(
                 "drowseoff-readings.csv",
-                get_readings_for_export(),
+                get_readings_for_export(query_device_id(parsed.query)),
                 READING_COLUMNS,
             )
             return
@@ -354,7 +370,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/export/events.csv":
             self.send_csv(
                 "drowseoff-events.csv",
-                get_events_for_export(),
+                get_events_for_export(query_device_id(parsed.query)),
                 EVENT_COLUMNS,
             )
             return
@@ -362,30 +378,30 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/export/commands.csv":
             self.send_csv(
                 "drowseoff-commands.csv",
-                get_commands_for_export(),
+                get_commands_for_export(query_device_id(parsed.query)),
                 COMMAND_COLUMNS,
             )
             return
 
         if parsed.path == "/api/summary":
-            self.send_json(200, get_summary())
+            self.send_json(200, get_summary(query_device_id(parsed.query)))
             return
 
         if parsed.path == "/api/session":
-            self.send_json(200, get_session_report())
+            self.send_json(200, get_session_report(query_device_id(parsed.query)))
             return
 
         if parsed.path == "/api/session-summary":
-            self.send_json(200, get_session_summary())
+            self.send_json(200, get_session_summary(query_device_id(parsed.query)))
             return
 
         if parsed.path == "/api/calibration":
             limit = limited_query_param(parsed.query, "limit", 500, 5000)
-            self.send_json(200, get_calibration_report(limit))
+            self.send_json(200, get_calibration_report(limit, query_device_id(parsed.query)))
             return
 
         if parsed.path == "/api/sleep-series":
-            self.send_json(200, get_sleep_series())
+            self.send_json(200, get_sleep_series(query_device_id(parsed.query)))
             return
 
         self.send_json(404, {"error": "not found"})
@@ -405,8 +421,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/events":
-                event_id = insert_event(payload)
                 if payload.get("event_type") == "tv_power_off_attempt":
+                    payload = {**payload, "event_type": "tv_off_threshold_reached"}
+
+                event_id = insert_event(payload)
+                if payload.get("event_type") == "tv_off_threshold_reached":
                     remote_result = try_send_remote_auto(payload)
                     if not remote_result["ok"]:
                         status = 409 if remote_result["status"] == "disabled" else 503
@@ -428,8 +447,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/commands":
-                command_type = payload.get("command_type") or "tv_power"
-                if command_type != "tv_power":
+                raw_command_type = payload.get("command_type") or "tv_off"
+                command_type = "tv_off" if raw_command_type == "tv_power" else raw_command_type
+                if command_type != "tv_off":
                     self.send_json(400, {"error": "unsupported command"})
                     return
 
@@ -454,9 +474,10 @@ class Handler(BaseHTTPRequestHandler):
             if parsed.path == "/api/remote/send-off":
                 repeat_count = int_payload(payload, "repeat_count", 1)
                 provider = remote_status().get("provider", "remote")
+                device_id = payload_device_id(payload, f"remote-{provider}")
                 command_id = create_command(
                     {
-                        "device_id": f"remote-{provider}",
+                        "device_id": device_id,
                         "command_type": "tv_off",
                         "repeat_count": repeat_count,
                         "source": payload.get("source") or f"dashboard-{provider}",
@@ -473,7 +494,7 @@ class Handler(BaseHTTPRequestHandler):
                     )
                     insert_event(
                         {
-                            "device_id": f"remote-{result['provider']}",
+                            "device_id": device_id,
                             "event_type": "tv_off_remote_manual",
                             "note": f"Manual TV OFF sent by {result['provider']} x{result['repeat_count']}",
                         }
@@ -483,7 +504,7 @@ class Handler(BaseHTTPRequestHandler):
                     complete_command(command_id, "failed", str(exc))
                     insert_event(
                         {
-                            "device_id": f"remote-{provider}",
+                            "device_id": device_id,
                             "event_type": "tv_off_remote_failed",
                             "note": f"Manual remote error: {exc}",
                         }
@@ -511,14 +532,14 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(404, {"error": "command not found"})
                     return
 
-                if command["command_type"] == "tv_power":
+                if command["command_type"] in ("tv_off", "tv_power"):
                     insert_event(
                         {
                             "device_id": command["device_id"],
                             "event_type": (
-                                "tv_power_manual"
+                                "tv_off_esp32_manual"
                                 if command["status"] == "done"
-                                else "tv_power_manual_failed"
+                                else "tv_off_esp32_manual_failed"
                             ),
                             "sleep_score": payload.get("sleep_score"),
                             "dist_filtered": payload.get("dist_filtered"),

@@ -98,6 +98,7 @@ unsigned long lastWifiRetry = 0;
 unsigned long lastRemoteAutoAttempt = 0;
 unsigned long lastCommandCompleteAttempt = 0;
 bool otaConfigured = false;
+bool otaStarted = false;
 
 int pendingCommandCompleteId = 0;
 int pendingCommandCompleteDistance = -1;
@@ -165,6 +166,7 @@ void setupOTA() {
 
   ArduinoOTA.begin();
   otaConfigured = true;
+  otaStarted = true;
   Serial.println("OTA ready: you can update over Wi-Fi from the Arduino IDE");
 }
 
@@ -174,7 +176,9 @@ void handleOTA() {
   }
 
   setupOTA();
-  ArduinoOTA.handle();
+  if (otaStarted) {
+    ArduinoOTA.handle();
+  }
 }
 
 void connectWifi() {
@@ -231,16 +235,55 @@ String boolJson(bool value) {
 }
 
 String escapeJson(const String& value) {
+  const char* hex = "0123456789ABCDEF";
   String result = "";
 
   for (int i = 0; i < value.length(); i++) {
-    char c = value[i];
+    unsigned char c = value[i];
 
     if (c == '\\' || c == '"') {
       result += '\\';
+      result += char(c);
+    } else if (c == '\n') {
+      result += "\\n";
+    } else if (c == '\r') {
+      result += "\\r";
+    } else if (c == '\t') {
+      result += "\\t";
+    } else if (c < 0x20) {
+      result += "\\u00";
+      result += hex[(c >> 4) & 0x0F];
+      result += hex[c & 0x0F];
+    } else {
+      result += char(c);
     }
+  }
 
-    result += c;
+  return result;
+}
+
+String urlEncode(const String& value) {
+  const char* hex = "0123456789ABCDEF";
+  String result = "";
+
+  for (int i = 0; i < value.length(); i++) {
+    unsigned char c = value[i];
+    bool safe =
+      (c >= 'A' && c <= 'Z') ||
+      (c >= 'a' && c <= 'z') ||
+      (c >= '0' && c <= '9') ||
+      c == '-' ||
+      c == '_' ||
+      c == '.' ||
+      c == '~';
+
+    if (safe) {
+      result += char(c);
+    } else {
+      result += '%';
+      result += hex[(c >> 4) & 0x0F];
+      result += hex[c & 0x0F];
+    }
   }
 
   return result;
@@ -260,7 +303,7 @@ bool postJson(const String& url, const String& json) {
 
   http.addHeader("Content-Type", "application/json");
   if (apiTokenConfigured()) {
-    http.addHeader("X-TV-Sleep-Token", API_TOKEN);
+    http.addHeader("X-DrowseOff-Token", API_TOKEN);
   }
 
   int statusCode = http.POST(json);
@@ -282,7 +325,7 @@ bool getJson(const String& url, String& response) {
   }
 
   if (apiTokenConfigured()) {
-    http.addHeader("X-TV-Sleep-Token", API_TOKEN);
+    http.addHeader("X-DrowseOff-Token", API_TOKEN);
   }
 
   int statusCode = http.GET();
@@ -360,7 +403,7 @@ void loadServerSettings(bool force = false) {
   lastSettingsSync = millis();
 
   String response;
-  String url = serverUrl("/api/settings/device") + "?device_id=" + String(DEVICE_ID);
+  String url = serverUrl("/api/settings/device") + "?device_id=" + urlEncode(String(DEVICE_ID));
 
   if (!getJson(url, response)) {
     return;
@@ -466,7 +509,7 @@ bool checkServerCommands(int filteredDistance) {
   lastCommandCheck = millis();
 
   String response;
-  String url = serverUrl("/api/commands/next") + "?device_id=" + String(DEVICE_ID);
+  String url = serverUrl("/api/commands/next") + "?device_id=" + urlEncode(String(DEVICE_ID));
 
   if (!getJson(url, response)) {
     return false;
@@ -474,7 +517,7 @@ bool checkServerCommands(int filteredDistance) {
 
   int commandId = extractIntField(response, "id");
 
-  if (commandId <= 0 || response.indexOf("tv_power") < 0) {
+  if (commandId <= 0 || (response.indexOf("tv_off") < 0 && response.indexOf("tv_power") < 0)) {
     return false;
   }
 
@@ -514,7 +557,7 @@ void sendReadingToServer(
   lastServerUpload = millis();
 
   String json = "{";
-  json += "\"device_id\":\"" + String(DEVICE_ID) + "\"";
+  json += "\"device_id\":\"" + escapeJson(String(DEVICE_ID)) + "\"";
   json += ",\"mode\":\"" + String(autoPowerEnabled ? "AUTO" : "MONITOR") + "\"";
   json += ",\"threshold\":" + String(sleepThreshold);
   json += ",\"radar_ok\":" + boolJson(radarConnected);
@@ -542,7 +585,7 @@ void sendReadingToServer(
 
 bool sendEventToServer(const char* eventType, int filteredDistance, const char* note) {
   String json = "{";
-  json += "\"device_id\":\"" + String(DEVICE_ID) + "\"";
+  json += "\"device_id\":\"" + escapeJson(String(DEVICE_ID)) + "\"";
   json += ",\"event_type\":\"" + String(eventType) + "\"";
   json += ",\"sleep_score\":" + String(sleepScore);
   json += ",\"dist_filtered\":" + String(filteredDistance);
@@ -895,7 +938,7 @@ void loop() {
     scoreReason);
 
   if (remoteAutoRequestThisLoop) {
-    bool remoteRequestSent = sendEventToServer("tv_power_off_attempt", filteredDistance, "Sleep threshold reached");
+    bool remoteRequestSent = sendEventToServer("tv_off_threshold_reached", filteredDistance, "Sleep threshold reached");
     if (remoteRequestSent) {
       tvAlreadyOff = true;
     } else {

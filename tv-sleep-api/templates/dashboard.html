@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>DrowseOff</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/brand/favicon-32.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="/static/brand/icon-192.png">
   <script>
     (() => {
-      const savedTheme =
-        localStorage.getItem('drowseOffTheme') ||
-        localStorage.getItem('tvSleepTheme');
+      const savedTheme = localStorage.getItem('drowseOffTheme');
       if (savedTheme === 'light' || savedTheme === 'dark') {
         document.documentElement.dataset.theme = savedTheme;
       }
@@ -22,7 +22,7 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand">
-        <div class="brand-mark" aria-hidden="true">DO</div>
+        <img class="brand-mark" src="/static/brand/drowseoff-icon.png" alt="" aria-hidden="true">
         <div>
           <h1>DrowseOff</h1>
           <span>bedroom / primary sensor</span>
@@ -84,7 +84,12 @@
 
         <div class="sidebar-group">
           <div class="sidebar-title">Filters</div>
-          <div class="sidebar-row"><span>Device</span><strong>all</strong></div>
+          <label class="sidebar-field">
+            <span>Device</span>
+            <select id="deviceFilter">
+              <option value="all">All devices</option>
+            </select>
+          </label>
           <div class="sidebar-row"><span>Window</span><strong>recent</strong></div>
           <div class="sidebar-row"><span>Mode</span><strong id="autoModeSidebar">auto</strong></div>
         </div>

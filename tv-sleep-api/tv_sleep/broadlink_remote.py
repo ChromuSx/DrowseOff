@@ -1,6 +1,7 @@
 import base64
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 
 from .config import REMOTE_AUTO_ENABLED
@@ -11,6 +12,16 @@ BROADLINK_PACKET_PATH = Path(
 )
 BROADLINK_TIMEOUT = float(os.environ.get("BROADLINK_TIMEOUT", "5"))
 BROADLINK_REPEAT_DELAY = float(os.environ.get("BROADLINK_REPEAT_DELAY", "0.35"))
+BROADLINK_STATUS_PROBE_INTERVAL = float(
+    os.environ.get("BROADLINK_STATUS_PROBE_INTERVAL", "60")
+)
+
+_last_probe_monotonic = 0.0
+_last_probe_at = None
+_last_probe_ok = None
+_last_probe_error = None
+_last_probe_device = None
+_last_probe_devtype = None
 
 
 class BroadlinkError(RuntimeError):
@@ -36,6 +47,36 @@ def _device():
     return device
 
 
+def _now_iso():
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def _remember_probe(ok, error=None, device=None):
+    global _last_probe_monotonic
+    global _last_probe_at
+    global _last_probe_ok
+    global _last_probe_error
+    global _last_probe_device
+    global _last_probe_devtype
+
+    _last_probe_monotonic = time.monotonic()
+    _last_probe_at = _now_iso()
+    _last_probe_ok = bool(ok)
+    _last_probe_error = error
+    _last_probe_device = device.__class__.__name__ if device else None
+    _last_probe_devtype = hex(getattr(device, "devtype", 0)) if device else None
+
+
+def _probe_is_stale():
+    if _last_probe_ok is None:
+        return True
+
+    return (
+        time.monotonic() - _last_probe_monotonic
+        >= BROADLINK_STATUS_PROBE_INTERVAL
+    )
+
+
 def _read_packet():
     if not BROADLINK_PACKET_PATH.exists():
         raise BroadlinkError("BroadLink TV OFF code has not been learned yet")
@@ -47,7 +88,7 @@ def _read_packet():
     return base64.b64decode(encoded)
 
 
-def broadlink_status():
+def broadlink_status(probe=True):
     try:
         _load_broadlink()
         library_ready = True
@@ -59,6 +100,16 @@ def broadlink_status():
     packet_saved = (
         BROADLINK_PACKET_PATH.exists() and BROADLINK_PACKET_PATH.stat().st_size > 0
     )
+    can_probe = bool(BROADLINK_HOST and library_ready)
+
+    if probe and can_probe and _probe_is_stale():
+        try:
+            _remember_probe(True, device=_device())
+        except Exception as exc:
+            _remember_probe(False, error=str(exc))
+
+    configured = bool(BROADLINK_HOST and library_ready and packet_saved)
+    connected = _last_probe_ok is True
 
     return {
         "host": BROADLINK_HOST,
@@ -66,14 +117,21 @@ def broadlink_status():
         "library_ready": library_ready,
         "library_error": library_error,
         "packet_saved": packet_saved,
-        "ready": bool(BROADLINK_HOST and library_ready and packet_saved),
+        "configured": configured,
+        "connected": connected,
+        "last_probe_at": _last_probe_at,
+        "last_probe_error": _last_probe_error,
+        "device": _last_probe_device,
+        "devtype": _last_probe_devtype,
+        "ready": configured and connected,
     }
 
 
 def broadlink_probe():
     device = _device()
+    _remember_probe(True, device=device)
     return {
-        **broadlink_status(),
+        **broadlink_status(probe=False),
         "device": device.__class__.__name__,
         "devtype": hex(getattr(device, "devtype", 0)),
         "connected": True,
@@ -118,8 +176,10 @@ def send_tv_off(repeat_count=1):
         if index < repeat_count - 1:
             time.sleep(BROADLINK_REPEAT_DELAY)
 
+    _remember_probe(True, device=device)
+
     return {
-        **broadlink_status(),
+        **broadlink_status(probe=False),
         "sent": True,
         "repeat_count": repeat_count,
     }

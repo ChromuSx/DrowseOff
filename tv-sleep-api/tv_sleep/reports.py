@@ -4,6 +4,7 @@ from .db import (
     as_int,
     count_power_events,
     get_last_power_event,
+    get_power_events,
     get_readings,
     get_settings,
 )
@@ -74,8 +75,8 @@ def seconds_between(left, right):
     return max(0, int((right_ts - left_ts).total_seconds()))
 
 
-def sorted_recent_readings(limit=SESSION_LOOKBACK_ROWS):
-    rows = get_readings(limit)
+def sorted_recent_readings(limit=SESSION_LOOKBACK_ROWS, device_id=None):
+    rows = get_readings(limit, device_id)
     return sorted(
         [row for row in rows if timestamp(row)],
         key=lambda row: timestamp(row),
@@ -133,8 +134,8 @@ def find_recent_session(rows):
     return rows[start_index : end_index + 1], active
 
 
-def get_session_report():
-    all_rows = sorted_recent_readings()
+def get_session_report(device_id=None):
+    all_rows = sorted_recent_readings(device_id=device_id)
     rows, active = find_recent_session(all_rows)
     first_in_bed = next((row for row in rows if row.get("in_bed")), None)
     max_sleep_score = max([as_int(row.get("sleep_score")) or 0 for row in rows] or [0])
@@ -150,7 +151,7 @@ def get_session_report():
         end_ts + timedelta(seconds=SESSION_EVENT_GRACE_SECONDS) if end_ts else None
     )
     tv_commands = (
-        count_power_events(start_ts, event_end_ts)
+        count_power_events(start_ts, event_end_ts, device_id=device_id)
         if start_ts and event_end_ts
         else 0
     )
@@ -174,17 +175,17 @@ def get_session_report():
         "stable_seconds": estimated_seconds(
             rows, lambda row: bool(row.get("in_bed")) and bool(row.get("stable"))
         ),
-        "last_power_event": get_last_power_event(),
+        "last_power_event": get_last_power_event(device_id=device_id),
         "session_power_event": (
-            get_last_power_event(start_ts, event_end_ts)
+            get_last_power_event(start_ts, event_end_ts, device_id=device_id)
             if start_ts and event_end_ts
             else None
         ),
     }
 
 
-def get_session_summary():
-    session = get_session_report()
+def get_session_summary(device_id=None):
+    session = get_session_report(device_id=device_id)
     power_event = session.get("session_power_event")
     state = "active" if session.get("session_active") else "closed"
 
@@ -220,9 +221,9 @@ def get_session_summary():
     }
 
 
-def get_calibration_report(limit=500):
+def get_calibration_report(limit=500, device_id=None):
     settings = get_settings()
-    rows = list(reversed(get_readings(limit)))
+    rows = list(reversed(get_readings(limit, device_id)))
     distances = [
         as_int(row.get("dist_filtered"))
         for row in rows
@@ -261,8 +262,8 @@ def get_calibration_report(limit=500):
     }
 
 
-def get_sleep_series():
-    rows, _active = find_recent_session(sorted_recent_readings())
+def get_sleep_series(device_id=None):
+    rows, _active = find_recent_session(sorted_recent_readings(device_id=device_id))
     max_points = 360
 
     if len(rows) > max_points:
@@ -278,24 +279,27 @@ def get_sleep_series():
     event_end_ts = (
         end_ts + timedelta(seconds=SESSION_EVENT_GRACE_SECONDS) if end_ts else None
     )
-    power_event = (
-        get_last_power_event(start_ts, event_end_ts)
+    power_events = (
+        get_power_events(start_ts, event_end_ts, device_id=device_id)
         if start_ts and event_end_ts
-        else None
+        else []
     )
-    power_marker_index = None
+    power_marker_indexes = set()
 
-    if power_event and sampled:
+    for power_event in power_events:
+        if not sampled:
+            break
+
         event_ts = parse_iso_datetime(power_event.get("ts"))
         if event_ts:
-            power_marker_index = min(
+            power_marker_indexes.add(min(
                 range(len(sampled)),
                 key=lambda index: abs(
                     (timestamp(sampled[index]) - event_ts).total_seconds()
                 )
                 if timestamp(sampled[index])
                 else float("inf"),
-            )
+            ))
 
     return {
         "window_start": start_ts.isoformat(timespec="seconds") if start_ts else None,
@@ -309,7 +313,7 @@ def get_sleep_series():
                 "stable": as_int(row.get("stable")) or 0,
                 "dist_filtered": as_int(row.get("dist_filtered")),
                 "tv_command_sent": (as_int(row.get("tv_command_sent")) or 0)
-                or (1 if index == power_marker_index else 0),
+                or (1 if index in power_marker_indexes else 0),
                 "score_reason": row.get("score_reason"),
             }
             for index, row in enumerate(sampled)

@@ -82,9 +82,7 @@ SETTING_LIMITS = {
 }
 
 TV_OFF_SUCCESS_EVENT_TYPES = (
-    "tv_power_manual",
-    "tv_power_broadlink_auto",
-    "tv_power_broadlink_manual",
+    "tv_off_esp32_manual",
     "tv_off_remote_auto",
     "tv_off_remote_manual",
     "tv_off_esp32_auto",
@@ -164,11 +162,14 @@ def ensure_db():
         )
 
         migrate_readings_table(conn)
+        migrate_events_table(conn)
         migrate_commands_table(conn)
         ensure_default_settings(conn)
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_readings_ts ON readings(ts)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_readings_device ON readings(device_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_events_device ON events(device_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commands_status ON commands(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commands_device ON commands(device_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commands_expires ON commands(expires_at)")
@@ -182,6 +183,23 @@ def migrate_readings_table(conn):
         conn.execute("ALTER TABLE readings ADD COLUMN score_reason TEXT")
 
 
+def migrate_events_table(conn):
+    event_type_renames = {
+        "tv_power_off_attempt": "tv_off_threshold_reached",
+        "tv_power_manual": "tv_off_esp32_manual",
+        "tv_power_manual_failed": "tv_off_esp32_manual_failed",
+        "tv_power_broadlink_auto": "tv_off_remote_auto",
+        "tv_power_broadlink_manual": "tv_off_remote_manual",
+        "tv_power_broadlink_failed": "tv_off_remote_failed",
+    }
+
+    for old_event_type, new_event_type in event_type_renames.items():
+        conn.execute(
+            "UPDATE events SET event_type = ? WHERE event_type = ?",
+            (new_event_type, old_event_type),
+        )
+
+
 def migrate_commands_table(conn):
     cursor = conn.execute("PRAGMA table_info(commands)")
     columns = {row[1] for row in cursor.fetchall()}
@@ -191,6 +209,10 @@ def migrate_commands_table(conn):
 
     if "expires_at" not in columns:
         conn.execute("ALTER TABLE commands ADD COLUMN expires_at TEXT")
+
+    conn.execute(
+        "UPDATE commands SET command_type = 'tv_off' WHERE command_type = 'tv_power'"
+    )
 
 
 def ensure_default_settings(conn):
@@ -222,6 +244,11 @@ def bounded_int(value, default, minimum, maximum):
     if parsed is None:
         parsed = default
     return max(minimum, min(parsed, maximum))
+
+
+def normalize_device_id(device_id):
+    value = str(device_id or "").strip()
+    return value if value and value != "all" else None
 
 
 def command_expires_at(ttl_seconds=None):
@@ -310,53 +337,136 @@ def insert_event(payload):
         return cursor.lastrowid
 
 
-def get_readings(limit):
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.execute(
-            "SELECT * FROM readings ORDER BY id DESC LIMIT ?",
-            (limit,),
-        )
-        return [row_to_dict(cursor, row) for row in cursor.fetchall()]
-
-
-def get_readings_for_export():
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.execute("SELECT * FROM readings ORDER BY id ASC")
-        return [row_to_dict(cursor, row) for row in cursor.fetchall()]
-
-
-def get_readings_between(start, end):
+def get_device_ids():
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
             """
-            SELECT * FROM readings
-            WHERE ts >= ? AND ts < ?
-            ORDER BY ts ASC
-            """,
-            (start.isoformat(timespec="seconds"), end.isoformat(timespec="seconds")),
+            SELECT DISTINCT device_id FROM (
+                SELECT device_id FROM readings
+                UNION ALL
+                SELECT device_id FROM events
+                UNION ALL
+                SELECT device_id FROM commands
+            )
+            WHERE device_id IS NOT NULL AND device_id NOT IN ('', '*')
+            ORDER BY device_id ASC
+            """
         )
+        device_ids = [row[0] for row in cursor.fetchall()]
+
+    return device_ids or [DEFAULT_SENSOR_DEVICE_ID]
+
+
+def get_readings(limit, device_id=None):
+    device_id = normalize_device_id(device_id)
+    with sqlite3.connect(DB_PATH) as conn:
+        if device_id:
+            cursor = conn.execute(
+                """
+                SELECT * FROM readings
+                WHERE device_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (device_id, limit),
+            )
+        else:
+            cursor = conn.execute(
+                "SELECT * FROM readings ORDER BY id DESC LIMIT ?",
+                (limit,),
+            )
         return [row_to_dict(cursor, row) for row in cursor.fetchall()]
 
 
-def get_latest():
+def get_readings_for_export(device_id=None):
+    device_id = normalize_device_id(device_id)
     with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.execute("SELECT * FROM readings ORDER BY id DESC LIMIT 1")
+        if device_id:
+            cursor = conn.execute(
+                "SELECT * FROM readings WHERE device_id = ? ORDER BY id ASC",
+                (device_id,),
+            )
+        else:
+            cursor = conn.execute("SELECT * FROM readings ORDER BY id ASC")
+        return [row_to_dict(cursor, row) for row in cursor.fetchall()]
+
+
+def get_readings_between(start, end, device_id=None):
+    device_id = normalize_device_id(device_id)
+    with sqlite3.connect(DB_PATH) as conn:
+        if device_id:
+            cursor = conn.execute(
+                """
+                SELECT * FROM readings
+                WHERE ts >= ? AND ts < ? AND device_id = ?
+                ORDER BY ts ASC
+                """,
+                (
+                    start.isoformat(timespec="seconds"),
+                    end.isoformat(timespec="seconds"),
+                    device_id,
+                ),
+            )
+        else:
+            cursor = conn.execute(
+                """
+                SELECT * FROM readings
+                WHERE ts >= ? AND ts < ?
+                ORDER BY ts ASC
+                """,
+                (
+                    start.isoformat(timespec="seconds"),
+                    end.isoformat(timespec="seconds"),
+                ),
+            )
+        return [row_to_dict(cursor, row) for row in cursor.fetchall()]
+
+
+def get_latest(device_id=None):
+    device_id = normalize_device_id(device_id)
+    with sqlite3.connect(DB_PATH) as conn:
+        if device_id:
+            cursor = conn.execute(
+                "SELECT * FROM readings WHERE device_id = ? ORDER BY id DESC LIMIT 1",
+                (device_id,),
+            )
+        else:
+            cursor = conn.execute("SELECT * FROM readings ORDER BY id DESC LIMIT 1")
         row = cursor.fetchone()
         return row_to_dict(cursor, row) if row else None
 
 
-def get_events(limit):
+def get_events(limit, device_id=None):
+    device_id = normalize_device_id(device_id)
     with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.execute(
-            "SELECT * FROM events ORDER BY id DESC LIMIT ?",
-            (limit,),
-        )
+        if device_id:
+            cursor = conn.execute(
+                """
+                SELECT * FROM events
+                WHERE device_id IN (?, '*')
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (device_id, limit),
+            )
+        else:
+            cursor = conn.execute(
+                "SELECT * FROM events ORDER BY id DESC LIMIT ?",
+                (limit,),
+            )
         return [row_to_dict(cursor, row) for row in cursor.fetchall()]
 
 
-def get_events_for_export():
+def get_events_for_export(device_id=None):
+    device_id = normalize_device_id(device_id)
     with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.execute("SELECT * FROM events ORDER BY id ASC")
+        if device_id:
+            cursor = conn.execute(
+                "SELECT * FROM events WHERE device_id IN (?, '*') ORDER BY id ASC",
+                (device_id,),
+            )
+        else:
+            cursor = conn.execute("SELECT * FROM events ORDER BY id ASC")
         return [row_to_dict(cursor, row) for row in cursor.fetchall()]
 
 
@@ -413,7 +523,7 @@ def update_settings(payload):
 def create_command(payload):
     created_at = now_iso()
     device_id = str(payload.get("device_id") or DEFAULT_SENSOR_DEVICE_ID)
-    command_type = str(payload.get("command_type") or "tv_power")
+    command_type = str(payload.get("command_type") or "tv_off")
     repeat_count = bounded_int(payload.get("repeat_count"), 1, 1, 5)
     expires_at = command_expires_at(payload.get("ttl_seconds"))
 
@@ -463,20 +573,39 @@ def expire_old_commands(conn=None):
             conn.close()
 
 
-def get_commands(limit):
+def get_commands(limit, device_id=None):
+    device_id = normalize_device_id(device_id)
     with sqlite3.connect(DB_PATH) as conn:
         expire_old_commands(conn)
-        cursor = conn.execute(
-            "SELECT * FROM commands ORDER BY id DESC LIMIT ?",
-            (limit,),
-        )
+        if device_id:
+            cursor = conn.execute(
+                """
+                SELECT * FROM commands
+                WHERE device_id IN (?, '*')
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (device_id, limit),
+            )
+        else:
+            cursor = conn.execute(
+                "SELECT * FROM commands ORDER BY id DESC LIMIT ?",
+                (limit,),
+            )
         return [row_to_dict(cursor, row) for row in cursor.fetchall()]
 
 
-def get_commands_for_export():
+def get_commands_for_export(device_id=None):
+    device_id = normalize_device_id(device_id)
     with sqlite3.connect(DB_PATH) as conn:
         expire_old_commands(conn)
-        cursor = conn.execute("SELECT * FROM commands ORDER BY id ASC")
+        if device_id:
+            cursor = conn.execute(
+                "SELECT * FROM commands WHERE device_id IN (?, '*') ORDER BY id ASC",
+                (device_id,),
+            )
+        else:
+            cursor = conn.execute("SELECT * FROM commands ORDER BY id ASC")
         return [row_to_dict(cursor, row) for row in cursor.fetchall()]
 
 
@@ -572,13 +701,18 @@ def event_sort_key(row):
     return parse_iso_datetime(row.get("ts")) or datetime.fromtimestamp(0).astimezone()
 
 
-def get_last_power_event(start=None, end=None):
+def get_power_events(start=None, end=None, device_id=None):
+    device_id = normalize_device_id(device_id)
     placeholders = ", ".join(["?"] * len(TV_OFF_SUCCESS_EVENT_TYPES))
     query = f"""
         SELECT * FROM events
         WHERE event_type IN ({placeholders})
     """
     params = list(TV_OFF_SUCCESS_EVENT_TYPES)
+
+    if device_id:
+        query += " AND device_id IN (?, '*')"
+        params.append(device_id)
 
     query += " ORDER BY id DESC"
 
@@ -589,13 +723,16 @@ def get_last_power_event(start=None, end=None):
         if start and end:
             events = [event for event in events if event_in_range(event, start, end)]
 
-        if not events:
-            return None
-
-        return max(events, key=event_sort_key)
+        return sorted(events, key=event_sort_key)
 
 
-def count_power_events(start=None, end=None, conn=None):
+def get_last_power_event(start=None, end=None, device_id=None):
+    events = get_power_events(start, end, device_id)
+    return events[-1] if events else None
+
+
+def count_power_events(start=None, end=None, conn=None, device_id=None):
+    device_id = normalize_device_id(device_id)
     placeholders = ", ".join(["?"] * len(TV_OFF_SUCCESS_EVENT_TYPES))
     if start and end:
         query = f"""
@@ -609,6 +746,9 @@ def count_power_events(start=None, end=None, conn=None):
             WHERE event_type IN ({placeholders})
         """
     params = list(TV_OFF_SUCCESS_EVENT_TYPES)
+    if device_id:
+        query += " AND device_id IN (?, '*')"
+        params.append(device_id)
 
     if conn:
         cursor = conn.execute(query, params)
@@ -635,35 +775,70 @@ def count_power_events(start=None, end=None, conn=None):
         return row_to_dict(cursor, row)["tv_commands"] if row else 0
 
 
-def get_summary():
+def get_summary(device_id=None):
+    device_id = normalize_device_id(device_id)
     with sqlite3.connect(DB_PATH) as conn:
         expire_old_commands(conn)
-        cursor = conn.execute(
-            """
-            SELECT
-                COUNT(*) AS readings,
-                MAX(ts) AS last_ts,
-                MAX(sleep_score) AS max_sleep_score,
-                0 AS tv_commands
-            FROM readings
-            """
-        )
+        if device_id:
+            cursor = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS readings,
+                    MAX(ts) AS last_ts,
+                    MAX(sleep_score) AS max_sleep_score,
+                    0 AS tv_commands
+                FROM readings
+                WHERE device_id = ?
+                """,
+                (device_id,),
+            )
+        else:
+            cursor = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS readings,
+                    MAX(ts) AS last_ts,
+                    MAX(sleep_score) AS max_sleep_score,
+                    0 AS tv_commands
+                FROM readings
+                """
+            )
         summary = row_to_dict(cursor, cursor.fetchone())
 
-        cursor = conn.execute("SELECT COUNT(*) AS events FROM events")
+        if device_id:
+            cursor = conn.execute(
+                "SELECT COUNT(*) AS events FROM events WHERE device_id IN (?, '*')",
+                (device_id,),
+            )
+        else:
+            cursor = conn.execute("SELECT COUNT(*) AS events FROM events")
         summary.update(row_to_dict(cursor, cursor.fetchone()))
 
-        summary["tv_commands"] = count_power_events(conn=conn)
+        summary["tv_commands"] = count_power_events(conn=conn, device_id=device_id)
 
-        cursor = conn.execute(
-            """
-            SELECT
-                COUNT(*) AS commands,
-                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_commands
-            FROM commands
-            """
-        )
+        if device_id:
+            cursor = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS commands,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_commands
+                FROM commands
+                WHERE device_id IN (?, '*')
+                """,
+                (device_id,),
+            )
+        else:
+            cursor = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS commands,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_commands
+                FROM commands
+                """
+            )
         summary.update(row_to_dict(cursor, cursor.fetchone()))
+        summary["commands"] = summary.get("commands") or 0
+        summary["pending_commands"] = summary.get("pending_commands") or 0
         return summary
 
 

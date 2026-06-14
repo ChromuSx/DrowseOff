@@ -11,6 +11,9 @@ tv-sleep-api/data/
 *.sqlite
 *.sqlite3
 
+# Local design scratchpad
+design/
+
 # Python
 __pycache__/
 *.py[cod]

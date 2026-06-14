@@ -1,4 +1,5 @@
 import csv
+import hmac
 import io
 import json
 import mimetypes
@@ -54,6 +55,8 @@ from .reports import (
     get_sleep_series,
 )
 from .time_utils import now_iso
+
+MAX_JSON_BODY_BYTES = 64 * 1024
 
 
 def limited_query_param(query, name, default, maximum):
@@ -224,7 +227,17 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def read_json(self):
-        length = int(self.headers.get("Content-Length", "0"))
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as exc:
+            raise ValueError("invalid Content-Length") from exc
+
+        if length < 0:
+            raise ValueError("invalid Content-Length")
+
+        if length > MAX_JSON_BODY_BYTES:
+            raise ValueError("request body too large")
+
         raw = self.rfile.read(length)
         if not raw:
             return {}
@@ -255,7 +268,7 @@ class Handler(BaseHTTPRequestHandler):
             )
             return False
 
-        if self.request_token() == API_TOKEN:
+        if hmac.compare_digest(self.request_token(), API_TOKEN):
             return True
 
         self.send_json(401, {"error": "authentication required"})

@@ -412,7 +412,7 @@ function setRemoteAvailability(online) {
   });
 
   document.getElementById('powerControlStatus').textContent = remoteReady
-    ? 'Remote ready'
+    ? 'Remote configured'
     : (online ? 'ESP32 online' : 'Remote offline');
 }
 
@@ -460,7 +460,7 @@ async function queuePowerCommand(repeatCount = 1) {
 
 async function sendPowerCommand() {
   if (!latestOnline && !latestRemote.ready) {
-    setStatus('No remote is ready: ESP32 is offline and the remote hub is not configured.');
+    setStatus('No remote is configured: ESP32 is offline and the remote hub is not configured.');
     return;
   }
 
@@ -737,7 +737,7 @@ function renderRemoteStatus(status) {
     statusLabel.innerHTML = '<span class="bad">Library missing</span>';
     detail.textContent = latestRemote.library_error || 'Remote backend is not available.';
   } else if (latestRemote.ready) {
-    statusLabel.innerHTML = '<span class="ok">Ready</span>';
+    statusLabel.innerHTML = '<span class="ok">Configured</span>';
     detail.textContent = `${latestRemote.provider || 'remote'} ${latestRemote.host || ''} - OFF code saved`;
   } else if (latestRemote.host) {
     statusLabel.innerHTML = '<span class="warn">Needs learning</span>';
@@ -772,7 +772,7 @@ function renderOperationsRail(summary, settings, remote, session) {
     : 'host not configured';
 
   setPill('componentSensorState', latestOnline ? 'up' : 'down', latestOnline ? 'ok' : 'bad');
-  setPill('componentRemoteState', remoteReady ? 'ready' : 'check', remoteReady ? 'ok' : 'warn');
+  setPill('componentRemoteState', remoteReady ? 'configured' : 'check', remoteReady ? 'ok' : 'warn');
   setPill('componentModeState', autoOn ? 'auto' : 'monitor', autoOn ? 'ok' : 'warn');
   setPill('topbarApiState', 'API local', 'ok');
   setPill('topbarRefreshState', 'refresh 10s', 'neutral');
@@ -787,7 +787,7 @@ function renderOperationsRail(summary, settings, remote, session) {
     alertCount.textContent = '1 grouped';
   } else if (!remoteReady) {
     alertBox.classList.add('warn');
-    alertBox.innerHTML = '<strong>Remote not ready</strong><p>The dashboard can monitor sessions, but TV OFF may fall back to ESP32 IR or fail.</p>';
+    alertBox.innerHTML = '<strong>Remote not configured</strong><p>The dashboard can monitor sessions, but TV OFF may fall back to ESP32 IR or fail.</p>';
     alertCount.textContent = '1 grouped';
   } else if (thresholdReached && !powerEvent && autoOn) {
     alertBox.classList.add('warn');

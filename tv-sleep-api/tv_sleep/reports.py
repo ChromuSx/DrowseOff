@@ -275,6 +275,27 @@ def get_sleep_series():
 
     start_ts = timestamp(rows[0]) if rows else None
     end_ts = timestamp(rows[-1]) if rows else None
+    event_end_ts = (
+        end_ts + timedelta(seconds=SESSION_EVENT_GRACE_SECONDS) if end_ts else None
+    )
+    power_event = (
+        get_last_power_event(start_ts, event_end_ts)
+        if start_ts and event_end_ts
+        else None
+    )
+    power_marker_index = None
+
+    if power_event and sampled:
+        event_ts = parse_iso_datetime(power_event.get("ts"))
+        if event_ts:
+            power_marker_index = min(
+                range(len(sampled)),
+                key=lambda index: abs(
+                    (timestamp(sampled[index]) - event_ts).total_seconds()
+                )
+                if timestamp(sampled[index])
+                else float("inf"),
+            )
 
     return {
         "window_start": start_ts.isoformat(timespec="seconds") if start_ts else None,
@@ -287,9 +308,10 @@ def get_sleep_series():
                 "in_bed": as_int(row.get("in_bed")) or 0,
                 "stable": as_int(row.get("stable")) or 0,
                 "dist_filtered": as_int(row.get("dist_filtered")),
-                "tv_command_sent": as_int(row.get("tv_command_sent")) or 0,
+                "tv_command_sent": (as_int(row.get("tv_command_sent")) or 0)
+                or (1 if index == power_marker_index else 0),
                 "score_reason": row.get("score_reason"),
             }
-            for row in sampled
+            for index, row in enumerate(sampled)
         ],
     }

@@ -176,19 +176,28 @@ Keep `esp32_ir_auto_enabled=0` when using a remote hub such as BroadLink. Enable
 it only if the ESP32 has a working IR transmitter that should act as the
 automatic TV OFF device.
 
+Arduino OTA is disabled unless the firmware `secrets.h` explicitly sets
+`OTA_ENABLED_VALUE true` and a non-empty `OTA_PASSWORD_VALUE`. Do not enable OTA
+without a local password.
+
+When firmware `CONFIGURE_RADAR_ON_BOOT_VALUE` is enabled, the LD2410C hardware
+range is recalculated at boot from `distance_max_cm`. If you materially change
+the bed range in the dashboard, restart the ESP32 so the radar gate
+configuration matches the new placement.
+
 The firmware also sends `score_reason`, a human-readable reason for score
 changes, such as `+1 stable and still` or `-8 strong movement`.
 
-Arduino OTA is enabled after the first USB upload. OTA availability depends on
-your network and Arduino IDE setup.
+The current dashboard and reports are intended for one primary sensor. Readings
+include `device_id`, but multi-device filters are not implemented yet.
 
 ## BroadLink Workflow
 
 Set these values in `.env`:
 
 ```env
-REMOTE_PROVIDER=broadlink
-REMOTE_AUTO_ENABLED=1
+DROWSEOFF_REMOTE_PROVIDER=broadlink
+DROWSEOFF_REMOTE_AUTO_ENABLED=1
 BROADLINK_HOST=192.168.1.100
 BROADLINK_PACKET_PATH=/data/broadlink_tv_off.b64
 ```
@@ -200,9 +209,10 @@ Learning flow from the dashboard:
 3. Send the TV OFF command toward the BroadLink device.
 4. Press Save OFF Code.
 
-When `packet_saved=true` and `ready=true`, the dashboard TV OFF button uses the
-remote provider. Automatic TV OFF also uses the remote provider when the ESP32
-reports that the sleep threshold has been reached.
+When the remote provider is configured with a host and saved packet, the
+dashboard TV OFF button uses the remote provider. Automatic TV OFF also uses the
+remote provider when the ESP32 reports that the sleep threshold has been
+reached. A real send/probe is still the best way to verify reachability.
 
 The threshold event itself is stored as `tv_power_off_attempt`. A successful
 remote provider send is stored separately as `tv_off_remote_auto` or

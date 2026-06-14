@@ -31,6 +31,18 @@
 #define API_TOKEN_VALUE ""
 #endif
 
+#ifndef OTA_ENABLED_VALUE
+#define OTA_ENABLED_VALUE false
+#endif
+
+#ifndef OTA_PASSWORD_VALUE
+#define OTA_PASSWORD_VALUE ""
+#endif
+
+#ifndef CONFIGURE_RADAR_ON_BOOT_VALUE
+#define CONFIGURE_RADAR_ON_BOOT_VALUE true
+#endif
+
 ld2410 radar;
 
 const int RADAR_RX_PIN = 16;
@@ -45,6 +57,8 @@ const char WIFI_PASSWORD[] = WIFI_PASSWORD_VALUE;
 const char DEVICE_ID[] = DEVICE_ID_VALUE;
 const char SERVER_BASE_URL[] = SERVER_BASE_URL_VALUE;
 const char API_TOKEN[] = API_TOKEN_VALUE;
+const bool OTA_ENABLED = OTA_ENABLED_VALUE;
+const char OTA_PASSWORD[] = OTA_PASSWORD_VALUE;
 const unsigned long SERVER_UPLOAD_INTERVAL_MS = 10000;
 const unsigned long COMMAND_CHECK_INTERVAL_MS = 5000;
 const unsigned long SETTINGS_SYNC_INTERVAL_MS = 60000;
@@ -66,10 +80,10 @@ bool esp32IrAutoEnabled = false;
 
 const int DISTANCE_SAMPLE_COUNT = 5;
 
-const int RADAR_MAX_MOVING_GATE = 2;
-const int RADAR_MAX_STATIONARY_GATE = 2;
+const int RADAR_GATE_SIZE_CM = 75;
+const int RADAR_MAX_GATE_LIMIT = 8;
 const int RADAR_INACTIVITY_TIMER_S = 3;
-const bool CONFIGURE_RADAR_ON_BOOT = true;
+const bool CONFIGURE_RADAR_ON_BOOT = CONFIGURE_RADAR_ON_BOOT_VALUE;
 
 int sleepScore = 0;
 bool tvAlreadyOff = false;
@@ -121,7 +135,20 @@ void setupOTA() {
     return;
   }
 
+  if (!OTA_ENABLED) {
+    otaConfigured = true;
+    Serial.println("OTA disabled: enable OTA_ENABLED_VALUE in secrets.h if needed");
+    return;
+  }
+
+  if (strlen(OTA_PASSWORD) == 0) {
+    otaConfigured = true;
+    Serial.println("OTA disabled: set OTA_PASSWORD_VALUE before enabling over-Wi-Fi updates");
+    return;
+  }
+
   ArduinoOTA.setHostname(DEVICE_ID);
+  ArduinoOTA.setPassword(OTA_PASSWORD);
 
   ArduinoOTA.onStart([]() {
     Serial.println("OTA: firmware update started");
@@ -573,6 +600,11 @@ int calculateFilteredDistance() {
   return (values[center - 1] + values[center]) / 2;
 }
 
+int radarGateForDistance(int distanceCm) {
+  int gate = (distanceCm + RADAR_GATE_SIZE_CM - 1) / RADAR_GATE_SIZE_CM;
+  return clampInt(gate, 1, RADAR_MAX_GATE_LIMIT);
+}
+
 void configureRadarIfNeeded() {
   if (!CONFIGURE_RADAR_ON_BOOT) {
     return;
@@ -593,17 +625,23 @@ void configureRadarIfNeeded() {
   Serial.print(radar.sensor_idle_time);
   Serial.println(" s");
 
+  int targetGate = radarGateForDistance(bedMaxDistanceCm);
+
   bool configurationAlreadyCorrect =
-    radar.max_moving_gate == RADAR_MAX_MOVING_GATE && radar.max_stationary_gate == RADAR_MAX_STATIONARY_GATE && radar.sensor_idle_time == RADAR_INACTIVITY_TIMER_S;
+    radar.max_moving_gate == targetGate && radar.max_stationary_gate == targetGate && radar.sensor_idle_time == RADAR_INACTIVITY_TIMER_S;
 
   if (configurationAlreadyCorrect) {
     Serial.println("LD2410C configuration is already correct");
     return;
   }
 
-  Serial.println("Setting LD2410C to short range: about 1.5 m");
+  Serial.print("Setting LD2410C max gate from bed range: ");
+  Serial.print(targetGate);
+  Serial.print(" (~");
+  Serial.print(targetGate * RADAR_GATE_SIZE_CM);
+  Serial.println(" cm)");
 
-  if (!radar.setMaxValues(RADAR_MAX_MOVING_GATE, RADAR_MAX_STATIONARY_GATE, RADAR_INACTIVITY_TIMER_S)) {
+  if (!radar.setMaxValues(targetGate, targetGate, RADAR_INACTIVITY_TIMER_S)) {
     Serial.println("Error: LD2410C configuration was not saved");
     return;
   }
@@ -643,9 +681,11 @@ void setup() {
 
   Serial2.begin(256000, SERIAL_8N1, RADAR_RX_PIN, RADAR_TX_PIN);
 
+  bool radarReady = false;
+
   if (radar.begin(Serial2)) {
     Serial.println("LD2410C connected");
-    configureRadarIfNeeded();
+    radarReady = true;
   } else {
     Serial.println("Error: LD2410C not found");
   }
@@ -653,6 +693,10 @@ void setup() {
   irsend.begin();
   connectWifi();
   loadServerSettings(true);
+
+  if (radarReady) {
+    configureRadarIfNeeded();
+  }
 
   Serial.print("Automatic TV OFF: ");
   Serial.println(autoPowerEnabled ? "ON" : "MONITOR ONLY");

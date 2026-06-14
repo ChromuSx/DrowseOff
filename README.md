@@ -49,6 +49,8 @@ cp firmware/esp32_sleep_sensor/secrets.example.h firmware/esp32_sleep_sensor/sec
 
 Then set your real Wi-Fi name, Wi-Fi password, device ID, server URL, and API
 token. The firmware token must match `DROWSEOFF_API_TOKEN` on the server.
+Over-the-air firmware updates are disabled by default; enable them only after
+setting a local `OTA_PASSWORD_VALUE`.
 Open `firmware/esp32_sleep_sensor/esp32_sleep_sensor.ino` from the Arduino IDE.
 
 The server reads local deployment settings from:
@@ -92,6 +94,19 @@ per second:
 With the default threshold of `600`, a calm session takes roughly 10 minutes to
 reach the automatic TV OFF point. Lower values turn the TV off sooner; higher
 values wait longer.
+
+## Radar Range
+
+When `CONFIGURE_RADAR_ON_BOOT_VALUE` is enabled, the firmware configures the
+LD2410C detection range from the current bed max distance setting. This keeps
+close-range bedroom setups from detecting the whole room, while still allowing
+users to increase the bed range for their own layout. If you change
+`distance_max_cm` significantly, restart the ESP32 so the radar hardware range
+is recalculated.
+
+The current dashboard and reports are optimized for one primary bedroom sensor.
+The database stores `device_id`, but multi-sensor filtering is still a roadmap
+item.
 
 ## Remote Control Backends
 

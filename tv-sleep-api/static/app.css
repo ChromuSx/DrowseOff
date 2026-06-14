@@ -622,6 +622,16 @@ select:focus-visible {
   min-width: 0;
 }
 
+@media (max-width: 1500px) {
+  .control-grid {
+    grid-template-columns: repeat(2, minmax(240px, 1fr));
+  }
+
+  .control-grid .wide-panel {
+    grid-column: 1 / -1;
+  }
+}
+
 .chart-panel {
   margin-top: 10px;
 }

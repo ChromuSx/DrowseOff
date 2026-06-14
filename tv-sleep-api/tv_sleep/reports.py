@@ -1,4 +1,4 @@
-from .db import as_int, get_last_power_event, get_readings, get_settings
+from .db import as_int, count_power_events, get_last_power_event, get_readings, get_settings
 from .time_utils import parse_iso_datetime
 
 
@@ -129,7 +129,6 @@ def get_session_report():
     rows, active = find_recent_session(all_rows)
     first_in_bed = next((row for row in rows if row.get("in_bed")), None)
     max_sleep_score = max([as_int(row.get("sleep_score")) or 0 for row in rows] or [0])
-    tv_commands = sum(1 for row in rows if row.get("tv_command_sent"))
     out_of_bed_readings = sum(
         1 for row in rows if row.get("presence") and not row.get("in_bed")
     )
@@ -138,6 +137,7 @@ def get_session_report():
     threshold = last_value(rows, "threshold")
     start_ts = timestamp(rows[0]) if rows else None
     end_ts = timestamp(rows[-1]) if rows else None
+    tv_commands = count_power_events(start_ts, end_ts) if start_ts and end_ts else 0
 
     return {
         "window_start": start_ts.isoformat(timespec="seconds") if start_ts else None,

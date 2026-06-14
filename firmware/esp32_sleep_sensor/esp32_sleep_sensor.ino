@@ -49,6 +49,8 @@ const unsigned long SERVER_UPLOAD_INTERVAL_MS = 10000;
 const unsigned long COMMAND_CHECK_INTERVAL_MS = 5000;
 const unsigned long SETTINGS_SYNC_INTERVAL_MS = 60000;
 const unsigned long WIFI_RECONNECT_INTERVAL_MS = 30000;
+const int HTTP_GET_TIMEOUT_MS = 2000;
+const int HTTP_POST_TIMEOUT_MS = 8000;
 
 int bedMinDistanceCm = 40;
 int bedMaxDistanceCm = 120;
@@ -58,6 +60,7 @@ int strongDistanceChangeCm = 55;
 int maxOutOfBedReadings = 8;
 int irRepeats = 2;
 bool autoPowerEnabled = true;
+bool esp32IrAutoEnabled = false;
 
 const int DISTANCE_SAMPLE_COUNT = 5;
 
@@ -213,7 +216,7 @@ bool postJson(const String& url, const String& json) {
   }
 
   HTTPClient http;
-  http.setTimeout(2000);
+  http.setTimeout(HTTP_POST_TIMEOUT_MS);
 
   if (!http.begin(url)) {
     return false;
@@ -236,7 +239,7 @@ bool getJson(const String& url, String& response) {
   }
 
   HTTPClient http;
-  http.setTimeout(2000);
+  http.setTimeout(HTTP_GET_TIMEOUT_MS);
 
   if (!http.begin(url)) {
     return false;
@@ -338,6 +341,11 @@ void loadServerSettings(bool force = false) {
   int autoPower = extractIntField(response, "auto_power_enabled");
   if (autoPower >= 0) {
     autoPowerEnabled = autoPower == 1;
+  }
+
+  int esp32IrAuto = extractIntField(response, "esp32_ir_auto_enabled");
+  if (esp32IrAuto >= 0) {
+    esp32IrAutoEnabled = esp32IrAuto == 1;
   }
 
   if (bedMinDistanceCm >= bedMaxDistanceCm) {
@@ -641,7 +649,8 @@ void loop() {
   bool strongMovement = false;
   bool tvCommandSentThisLoop = false;
   bool dashboardCommandThisLoop = false;
-  bool automaticCommandThisLoop = false;
+  bool automaticAttemptThisLoop = false;
+  bool esp32AutoSentThisLoop = false;
   String scoreReason = "";
 
   if (personInBed && lastValidDistance != -1) {
@@ -751,10 +760,15 @@ void loop() {
 
   if (sleepScore >= sleepThreshold && !tvAlreadyOff && autoPowerEnabled) {
     Serial.print(" | TV OFF");
-    sendTvPower(1);
+    if (esp32IrAutoEnabled) {
+      sendTvPower(1);
+      tvCommandSentThisLoop = true;
+      esp32AutoSentThisLoop = true;
+    } else {
+      Serial.print(" REMOTE REQUEST");
+    }
     tvAlreadyOff = true;
-    tvCommandSentThisLoop = true;
-    automaticCommandThisLoop = true;
+    automaticAttemptThisLoop = true;
   } else if (sleepScore >= sleepThreshold && !autoPowerEnabled) {
     Serial.print(" | THRESHOLD REACHED - MONITOR ONLY");
   }
@@ -774,8 +788,11 @@ void loop() {
     tvCommandSentThisLoop,
     scoreReason);
 
-  if (automaticCommandThisLoop) {
+  if (automaticAttemptThisLoop) {
     sendEventToServer("tv_power_off_attempt", filteredDistance, "Sleep threshold reached");
+    if (esp32AutoSentThisLoop) {
+      sendEventToServer("tv_off_esp32_auto", filteredDistance, "Automatic TV OFF sent by ESP32 IR");
+    }
   }
 
   Serial.println();

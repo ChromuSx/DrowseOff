@@ -101,6 +101,10 @@ The firmware still supports an ESP32 IR transmitter fallback for users who want
 a direct IR module instead of a network remote hub. In practice, a hub placed
 near the TV is usually more reliable than a weak IR LED near the bed.
 
+Automatic ESP32 IR fallback is disabled by default. Enable
+`esp32_ir_auto_enabled=1` from the dashboard settings only when a working IR
+transmitter is connected to the ESP32 and aimed at the TV.
+
 The dashboard distinguishes between a threshold attempt and a confirmed remote
 provider send event. If the remote backend fails, the failure is saved in the
 Events table instead of being silently ignored.

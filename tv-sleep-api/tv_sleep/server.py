@@ -63,6 +63,14 @@ def limited_query_param(query, name, default, maximum):
     return max(1, min(value, maximum))
 
 
+def int_payload(payload, name, default=0):
+    raw = payload.get(name, default)
+    try:
+        return int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+
+
 def dashboard_html():
     return (TEMPLATES_DIR / "dashboard.html").read_text(encoding="utf-8")
 
@@ -358,7 +366,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/remote/send-off":
-                repeat_count = int(payload.get("repeat_count") or 1)
+                repeat_count = int_payload(payload, "repeat_count", 1)
                 provider = remote_status().get("provider", "remote")
                 command_id = create_command(
                     {
@@ -398,7 +406,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/commands/cancel":
-                command_id = int(payload.get("id") or 0)
+                command_id = int_payload(payload, "id", 0)
                 command = cancel_command(command_id)
                 if not command:
                     self.send_json(404, {"error": "pending command not found"})
@@ -408,7 +416,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/commands/complete":
-                command_id = int(payload.get("id") or 0)
+                command_id = int_payload(payload, "id", 0)
                 status = payload.get("status") or "done"
                 note = payload.get("note")
 
@@ -452,6 +460,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": "not found"})
         except json.JSONDecodeError:
             self.send_json(400, {"error": "invalid json"})
+        except ValueError as exc:
+            self.send_json(400, {"error": str(exc)})
         except Exception as exc:
             self.send_json(500, {"error": str(exc)})
 

@@ -267,6 +267,13 @@
             <input id="settingIrRepeats" name="ir_repeats" type="number" min="0" max="5" step="1">
           </label>
           <label>
+            <span>ESP32 IR auto fallback</span>
+            <select id="settingEsp32IrAuto" name="esp32_ir_auto_enabled">
+              <option value="0">Disabled</option>
+              <option value="1">Enabled</option>
+            </select>
+          </label>
+          <label>
             <span>Command expiry</span>
             <input id="settingCommandTtl" name="command_ttl_seconds" type="number" min="15" max="900" step="15">
           </label>

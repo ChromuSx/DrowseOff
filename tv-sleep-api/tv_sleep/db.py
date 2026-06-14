@@ -63,6 +63,7 @@ DEFAULT_SETTINGS = {
     "distance_strong_cm": 55,
     "out_of_bed_limit": 8,
     "ir_repeats": 2,
+    "esp32_ir_auto_enabled": 0,
     "command_ttl_seconds": 120,
     "auto_power_enabled": 1,
 }
@@ -75,9 +76,19 @@ SETTING_LIMITS = {
     "distance_strong_cm": (5, 200),
     "out_of_bed_limit": (1, 60),
     "ir_repeats": (0, 5),
+    "esp32_ir_auto_enabled": (0, 1),
     "command_ttl_seconds": (15, 900),
     "auto_power_enabled": (0, 1),
 }
+
+TV_OFF_SUCCESS_EVENT_TYPES = (
+    "tv_power_manual",
+    "tv_power_broadlink_auto",
+    "tv_power_broadlink_manual",
+    "tv_off_remote_auto",
+    "tv_off_remote_manual",
+    "tv_off_esp32_auto",
+)
 
 
 def ensure_db():
@@ -553,17 +564,12 @@ def cancel_command(command_id):
 
 
 def get_last_power_event(start=None, end=None):
-    query = """
+    placeholders = ", ".join(["?"] * len(TV_OFF_SUCCESS_EVENT_TYPES))
+    query = f"""
         SELECT * FROM events
-        WHERE event_type IN (
-            'tv_power_manual',
-            'tv_power_broadlink_auto',
-            'tv_power_broadlink_manual',
-            'tv_off_remote_auto',
-            'tv_off_remote_manual'
-        )
+        WHERE event_type IN ({placeholders})
     """
-    params = []
+    params = list(TV_OFF_SUCCESS_EVENT_TYPES)
 
     if start and end:
         query += " AND ts >= ? AND ts < ?"
@@ -580,6 +586,35 @@ def get_last_power_event(start=None, end=None):
         cursor = conn.execute(query, params)
         row = cursor.fetchone()
         return row_to_dict(cursor, row) if row else None
+
+
+def count_power_events(start=None, end=None, conn=None):
+    placeholders = ", ".join(["?"] * len(TV_OFF_SUCCESS_EVENT_TYPES))
+    query = f"""
+        SELECT COUNT(*) AS tv_commands
+        FROM events
+        WHERE event_type IN ({placeholders})
+    """
+    params = list(TV_OFF_SUCCESS_EVENT_TYPES)
+
+    if start and end:
+        query += " AND ts >= ? AND ts < ?"
+        params.extend(
+            [
+                start.isoformat(timespec="seconds"),
+                end.isoformat(timespec="seconds"),
+            ]
+        )
+
+    if conn:
+        cursor = conn.execute(query, params)
+        row = cursor.fetchone()
+        return row_to_dict(cursor, row)["tv_commands"] if row else 0
+
+    with sqlite3.connect(DB_PATH) as local_conn:
+        cursor = local_conn.execute(query, params)
+        row = cursor.fetchone()
+        return row_to_dict(cursor, row)["tv_commands"] if row else 0
 
 
 def get_summary():
@@ -600,20 +635,7 @@ def get_summary():
         cursor = conn.execute("SELECT COUNT(*) AS events FROM events")
         summary.update(row_to_dict(cursor, cursor.fetchone()))
 
-        cursor = conn.execute(
-            """
-            SELECT COUNT(*) AS tv_commands
-            FROM events
-            WHERE event_type IN (
-                'tv_power_manual',
-                'tv_power_broadlink_auto',
-                'tv_power_broadlink_manual',
-                'tv_off_remote_auto',
-                'tv_off_remote_manual'
-            )
-            """
-        )
-        summary.update(row_to_dict(cursor, cursor.fetchone()))
+        summary["tv_commands"] = count_power_events(conn=conn)
 
         cursor = conn.execute(
             """

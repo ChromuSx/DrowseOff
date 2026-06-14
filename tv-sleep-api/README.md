@@ -146,10 +146,16 @@ Important settings:
 auto_power_enabled=1   # automatic TV OFF enabled
 auto_power_enabled=0   # monitoring only
 sleep_threshold=600    # roughly 10 calm minutes with the default scoring
+esp32_ir_auto_enabled=0 # ESP32 does not auto-send direct IR
+esp32_ir_auto_enabled=1 # ESP32 auto-sends direct IR on threshold
 ```
 
 The dashboard exposes these settings in the Settings tab. Manual TV OFF commands
 remain available even when automatic TV OFF is disabled.
+
+Keep `esp32_ir_auto_enabled=0` when using a remote hub such as BroadLink. Enable
+it only if the ESP32 has a working IR transmitter that should act as the
+automatic TV OFF device.
 
 The firmware also sends `score_reason`, a human-readable reason for score
 changes, such as `+1 stable and still` or `-8 strong movement`.
@@ -181,7 +187,8 @@ reports that the sleep threshold has been reached.
 
 The threshold event itself is stored as `tv_power_off_attempt`. A successful
 remote provider send is stored separately as `tv_off_remote_auto` or
-`tv_off_remote_manual`. Remote failures are stored as `tv_off_remote_failed`.
+`tv_off_remote_manual`. A successful direct ESP32 automatic IR send is stored as
+`tv_off_esp32_auto`. Remote failures are stored as `tv_off_remote_failed`.
 
 ## Home Assistant
 

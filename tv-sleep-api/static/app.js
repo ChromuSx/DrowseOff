@@ -79,7 +79,8 @@ const eventTypeLabel = (eventType) => {
     tv_power_broadlink_failed: 'Legacy remote failed',
     tv_off_remote_auto: 'TV OFF via remote',
     tv_off_remote_manual: 'Dashboard TV OFF via remote',
-    tv_off_remote_failed: 'Remote TV OFF failed'
+    tv_off_remote_failed: 'Remote TV OFF failed',
+    tv_off_esp32_auto: 'TV OFF via ESP32 IR'
   };
   return labels[eventType] || eventType || '-';
 };
@@ -552,7 +553,7 @@ function renderSummaryCards(summary, session, settings) {
     metricCard('Total readings', summary.readings || 0, 'Local database'),
     metricCard('Latest reading', formatTime(summary.last_ts), latestOnline ? 'ESP32 online' : 'ESP32 offline'),
     metricCard('Max score', session.max_sleep_score || summary.max_sleep_score || 0, `Threshold ${session.threshold || settings.sleep_threshold || '-'}`),
-    metricCard('TV commands', summary.tv_commands || 0, 'Automatic records'),
+    metricCard('TV commands', summary.tv_commands || 0, 'Successful events'),
     metricCard('Pending commands', summary.pending_commands || 0, 'Expire automatically'),
     metricCard('Mode', Number(settings.auto_power_enabled ?? 1) === 1 ? 'Auto' : 'Monitor', 'Config read by ESP32')
   ].join('');

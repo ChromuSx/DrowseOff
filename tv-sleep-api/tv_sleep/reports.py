@@ -168,19 +168,19 @@ def get_session_report():
 def get_session_summary():
     session = get_session_report()
     power_event = session.get("session_power_event")
-    state = "attiva" if session.get("session_active") else "conclusa"
+    state = "active" if session.get("session_active") else "closed"
 
     if session["readings"] == 0:
-        summary = "Non ci sono ancora letture in una sessione riconoscibile."
+        summary = "No readings are available for a recognizable session yet."
     elif power_event:
         summary = (
-            f"TV comandata alle {power_event['ts']} "
-            f"con punteggio {power_event.get('sleep_score', '-') }."
+            f"TV OFF was requested at {power_event['ts']} "
+            f"with score {power_event.get('sleep_score', '-')}."
         )
     else:
         summary = (
-            f"Sessione {state}. Nessun comando TV registrato. "
-            f"Punteggio massimo: {session['max_sleep_score']}."
+            f"Session {state}. No TV command was recorded. "
+            f"Max score: {session['max_sleep_score']}."
         )
 
     return {

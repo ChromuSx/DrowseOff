@@ -1,4 +1,6 @@
-const yn = (value) => value ? '<span class="ok">SI</span>' : '<span class="bad">NO</span>';
+const USER_LOCALE = navigator.language || 'en-US';
+
+const yn = (value) => value ? '<span class="ok">YES</span>' : '<span class="bad">NO</span>';
 
 const safe = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
   '&': '&amp;',
@@ -14,7 +16,7 @@ const formatTime = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
 
-  return date.toLocaleString('it-IT', {
+  return date.toLocaleString(USER_LOCALE, {
     day: '2-digit',
     month: '2-digit',
     year: '2-digit',
@@ -30,7 +32,7 @@ const formatShortTime = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
 
-  return date.toLocaleString('it-IT', {
+  return date.toLocaleString(USER_LOCALE, {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
@@ -42,7 +44,7 @@ const formatClock = (value) => {
   if (!value) return '-';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
-  return date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  return date.toLocaleTimeString(USER_LOCALE, { hour: '2-digit', minute: '2-digit' });
 };
 
 const formatDuration = (seconds) => {
@@ -62,37 +64,41 @@ const formatRemaining = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
   const seconds = Math.round((date.getTime() - Date.now()) / 1000);
-  if (seconds <= 0) return 'scaduto';
-  return `tra ${formatDuration(seconds)}`;
+  if (seconds <= 0) return 'expired';
+  return `in ${formatDuration(seconds)}`;
 };
 
 const eventTypeLabel = (eventType) => {
   const labels = {
-    tv_power_off_attempt: 'Tentativo spegnimento TV',
-    tv_power_manual: 'Spegnimento TV inviato da dashboard',
-    tv_power_manual_failed: 'Spegnimento TV dashboard fallito',
-    tv_power_broadlink_auto: 'Spegnimento TV via BroadLink',
-    tv_power_broadlink_manual: 'Spegnimento TV BroadLink dashboard',
-    tv_power_broadlink_failed: 'BroadLink fallito'
+    tv_power_off_attempt: 'TV OFF threshold reached',
+    tv_power_manual: 'TV OFF sent from dashboard',
+    tv_power_manual_failed: 'Dashboard TV OFF failed',
+    tv_power_broadlink_auto: 'TV OFF via BroadLink',
+    tv_power_broadlink_manual: 'Dashboard TV OFF via BroadLink',
+    tv_power_broadlink_failed: 'BroadLink failed',
+    tv_off_remote_auto: 'TV OFF via remote',
+    tv_off_remote_manual: 'Dashboard TV OFF via remote',
+    tv_off_remote_failed: 'Remote TV OFF failed'
   };
   return labels[eventType] || eventType || '-';
 };
 
 const commandTypeLabel = (commandType) => {
   const labels = {
-    tv_power: 'Spegni TV'
+    tv_power: 'TV OFF',
+    tv_off: 'TV OFF'
   };
   return labels[commandType] || commandType || '-';
 };
 
 const commandStatusLabel = (status) => {
   const labels = {
-    pending: 'In attesa',
-    claimed: 'In esecuzione',
-    done: 'Completato',
-    failed: 'Fallito',
-    expired: 'Scaduto',
-    cancelled: 'Annullato'
+    pending: 'Pending',
+    claimed: 'Running',
+    done: 'Done',
+    failed: 'Failed',
+    expired: 'Expired',
+    cancelled: 'Cancelled'
   };
   return labels[status] || status || '-';
 };
@@ -205,7 +211,7 @@ function selectChartMode(mode) {
 function resetClearButton() {
   clearArmed = false;
   clearDataButton.disabled = false;
-  clearDataButton.textContent = 'Svuota letture';
+  clearDataButton.textContent = 'Clear readings';
 
   if (clearArmedTimer) {
     clearTimeout(clearArmedTimer);
@@ -215,7 +221,7 @@ function resetClearButton() {
 
 function resetPowerButton() {
   powerArmed = false;
-  powerTvButton.textContent = 'Spegni TV';
+  powerTvButton.textContent = 'Turn TV off';
   setRemoteAvailability(latestOnline);
 
   if (powerArmedTimer) {
@@ -234,13 +240,13 @@ function setRemoteAvailability(online) {
   });
 
   document.getElementById('remoteStatus').textContent = broadlinkReady
-    ? 'BroadLink pronto'
-    : (online ? 'ESP32 online' : 'Telecomando offline');
+    ? 'Remote ready'
+    : (online ? 'ESP32 online' : 'Remote offline');
 }
 
 async function queuePowerCommand(repeatCount = 1) {
   if (latestBroadlink.ready) {
-    const response = await fetch('/api/broadlink/send-off', {
+    const response = await fetch('/api/remote/send-off', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -251,14 +257,14 @@ async function queuePowerCommand(repeatCount = 1) {
 
     const result = await response.json();
     if (!response.ok) {
-      throw new Error(result.error || 'BroadLink non ha inviato il comando');
+      throw new Error(result.error || 'The remote did not send the command');
     }
 
     return result;
   }
 
   if (!latestOnline) {
-    throw new Error('ESP32 offline: comando non accodato');
+    throw new Error('ESP32 is offline: command was not queued');
   }
 
   const response = await fetch('/api/commands', {
@@ -267,15 +273,14 @@ async function queuePowerCommand(repeatCount = 1) {
     body: JSON.stringify({
       command_type: 'tv_power',
       repeat_count: repeatCount,
-      device_id: 'camera-tv-esp32',
       source: 'dashboard',
-      note: `Richiesto dalla dashboard x${repeatCount}`
+      note: `Requested from dashboard x${repeatCount}`
     })
   });
 
   const result = await response.json();
   if (!response.ok) {
-    throw new Error(result.error || 'Comando non accodato');
+    throw new Error(result.error || 'Command was not queued');
   }
 
   return result;
@@ -283,14 +288,14 @@ async function queuePowerCommand(repeatCount = 1) {
 
 async function sendPowerCommand() {
   if (!latestOnline && !latestBroadlink.ready) {
-    setStatus('Nessun telecomando pronto: ESP32 offline e BroadLink non configurato.');
+    setStatus('No remote is ready: ESP32 is offline and the remote hub is not configured.');
     return;
   }
 
   if (!powerArmed) {
     powerArmed = true;
-    powerTvButton.textContent = 'Conferma spegnimento';
-    setStatus('Premi di nuovo per accodare lo spegnimento della TV.');
+    powerTvButton.textContent = 'Confirm TV OFF';
+    setStatus('Press again to send the TV OFF command.');
 
     powerArmedTimer = setTimeout(() => {
       resetPowerButton();
@@ -301,16 +306,16 @@ async function sendPowerCommand() {
 
   powerTvButton.disabled = true;
   const usingBroadlink = Boolean(latestBroadlink.ready);
-  setStatus(usingBroadlink ? 'Invio spegnimento TV via BroadLink...' : 'Spegnimento TV in coda...');
+  setStatus(usingBroadlink ? 'Sending TV OFF through the remote...' : 'Queueing TV OFF for the ESP32...');
 
   try {
     const result = await queuePowerCommand(1);
     await refresh();
     setStatus(usingBroadlink
-      ? `Spegnimento TV inviato via BroadLink (#${result.id}).`
-      : `Spegnimento TV accodato (#${result.id}). L'ESP32 lo ritira al prossimo controllo.`);
+      ? `TV OFF sent through the remote (#${result.id}).`
+      : `TV OFF queued (#${result.id}). The ESP32 will pick it up on its next check.`);
   } catch (error) {
-    setStatus(`Errore spegnimento TV: ${error.message}`);
+    setStatus(`TV OFF error: ${error.message}`);
   } finally {
     resetPowerButton();
   }
@@ -318,22 +323,22 @@ async function sendPowerCommand() {
 
 async function sendPowerTest(repeatCount) {
   setStatus(latestBroadlink.ready
-    ? `Invio test BroadLink OFF x${repeatCount}...`
-    : `Accodo test ESP32 OFF x${repeatCount}...`);
+    ? `Sending remote OFF test x${repeatCount}...`
+    : `Queueing ESP32 OFF test x${repeatCount}...`);
 
   try {
     const result = await queuePowerCommand(repeatCount);
     await refresh();
     setStatus(latestBroadlink.ready
-      ? `Test BroadLink OFF x${repeatCount} inviato (#${result.id}).`
-      : `Test ESP32 OFF x${repeatCount} accodato (#${result.id}).`);
+      ? `Remote OFF test x${repeatCount} sent (#${result.id}).`
+      : `ESP32 OFF test x${repeatCount} queued (#${result.id}).`);
   } catch (error) {
-    setStatus(`Errore test OFF TV: ${error.message}`);
+    setStatus(`TV OFF test error: ${error.message}`);
   }
 }
 
 async function cancelPendingCommand(commandId) {
-  setStatus(`Annullamento comando #${commandId}...`);
+  setStatus(`Cancelling command #${commandId}...`);
 
   try {
     const response = await fetch('/api/commands/cancel', {
@@ -344,21 +349,21 @@ async function cancelPendingCommand(commandId) {
 
     const result = await response.json();
     if (!response.ok) {
-      throw new Error(result.error || 'Comando non annullato');
+      throw new Error(result.error || 'Command was not cancelled');
     }
 
     await refresh();
-    setStatus(`Comando #${commandId} annullato.`);
+    setStatus(`Command #${commandId} cancelled.`);
   } catch (error) {
-    setStatus(`Errore annullamento: ${error.message}`);
+    setStatus(`Cancel error: ${error.message}`);
   }
 }
 
 async function clearData() {
   if (!clearArmed) {
     clearArmed = true;
-    clearDataButton.textContent = 'Conferma svuotamento';
-    setStatus('Premi di nuovo per cancellare tutte le letture, gli eventi e i comandi salvati.');
+    clearDataButton.textContent = 'Confirm clear';
+    setStatus('Press again to delete all saved readings, events, and commands.');
 
     clearArmedTimer = setTimeout(() => {
       resetClearButton();
@@ -368,24 +373,24 @@ async function clearData() {
   }
 
   clearDataButton.disabled = true;
-  setStatus('Pulizia in corso...');
+  setStatus('Clearing data...');
 
   try {
     const response = await fetch('/api/clear', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ confirm: 'SVUOTA' })
+      body: JSON.stringify({ confirm: 'CLEAR' })
     });
 
     const result = await response.json();
     if (!response.ok) {
-      throw new Error(result.error || 'Pulizia non riuscita');
+      throw new Error(result.error || 'Clear operation failed');
     }
 
     await refresh();
-    setStatus(`Pulizia completata: ${result.readings_deleted} letture eliminate, ${result.commands_deleted} comandi eliminati.`);
+    setStatus(`Clear complete: ${result.readings_deleted} readings and ${result.commands_deleted} commands deleted.`);
   } catch (error) {
-    setStatus(`Errore pulizia: ${error.message}`);
+    setStatus(`Clear error: ${error.message}`);
   } finally {
     resetClearButton();
   }
@@ -415,35 +420,35 @@ function renderHero(summary, session, settings) {
 
   badge.className = 'status-pill neutral';
   autoModePill.className = autoOn ? 'status-pill ok' : 'status-pill warn';
-  autoModePill.textContent = autoOn ? 'Auto attivo' : 'Solo monitoraggio';
+  autoModePill.textContent = autoOn ? 'Auto on' : 'Monitor only';
 
   if (!session.readings) {
-    badge.textContent = 'In attesa';
-    title.textContent = 'Nessuna sessione ancora leggibile';
-    detail.textContent = 'Appena il sensore vede una presenza stabile nel letto, qui comparira il verdetto della sessione.';
+    badge.textContent = 'Waiting';
+    title.textContent = 'No readable session yet';
+    detail.textContent = 'Once the sensor sees stable presence in bed, the session verdict will appear here.';
   } else if (powerEvent) {
     badge.className = 'status-pill ok';
-    badge.textContent = 'TV comandata';
-    title.textContent = `TV comandata alle ${formatClock(powerEvent.ts)}`;
-    detail.textContent = `Evento registrato con punteggio ${powerEvent.sleep_score ?? '-'} e distanza ${powerEvent.dist_filtered ?? '-'} cm.`;
+    badge.textContent = 'TV command sent';
+    title.textContent = `TV OFF requested at ${formatClock(powerEvent.ts)}`;
+    detail.textContent = `Recorded with score ${powerEvent.sleep_score ?? '-'} and distance ${powerEvent.dist_filtered ?? '-'} cm.`;
   } else if (score >= threshold && threshold > 0 && !autoOn) {
     badge.className = 'status-pill warn';
-    badge.textContent = 'Soglia raggiunta';
-    title.textContent = 'La sessione sembra da spegnimento, ma sei in solo monitoraggio';
-    detail.textContent = `Il punteggio ha raggiunto ${score}/${threshold}. Nessuno spegnimento automatico viene inviato in questa modalita.`;
+    badge.textContent = 'Threshold reached';
+    title.textContent = 'This session looks ready for TV OFF, but monitoring-only mode is active';
+    detail.textContent = `The score reached ${score}/${threshold}. No automatic TV OFF is sent in this mode.`;
   } else if (score >= threshold && threshold > 0) {
     badge.className = 'status-pill warn';
-    badge.textContent = 'Da verificare';
-    title.textContent = 'Soglia raggiunta, ma non vedo un evento TV';
-    detail.textContent = 'Controlla eventi e comandi: potrebbe essere un problema IR, posizione del trasmettitore o registrazione evento.';
+    badge.textContent = 'Check needed';
+    title.textContent = 'Threshold reached, but no TV event is visible';
+    detail.textContent = 'Check events and commands: the issue may be IR range, transmitter placement, or event logging.';
   } else {
-    badge.textContent = 'Monitoraggio';
-    title.textContent = 'Nessuno spegnimento nella sessione recente';
-    detail.textContent = `Punteggio massimo ${score}/${threshold || '-'}. Il sistema sta ancora osservando o non ha raggiunto la soglia.`;
+    badge.textContent = 'Monitoring';
+    title.textContent = 'No TV OFF in the recent session';
+    detail.textContent = `Max score ${score}/${threshold || '-'}. The system is still watching or has not reached the threshold.`;
   }
 
   document.getElementById('scoreProgressFill').style.width = `${progress}%`;
-  document.getElementById('scoreProgressLabel').textContent = `Punteggio massimo ${score} su soglia ${threshold || '-'}`;
+  document.getElementById('scoreProgressLabel').textContent = `Max score ${score} of threshold ${threshold || '-'}`;
   document.getElementById('deviceState').innerHTML = latestOnline
     ? '<span class="ok">Online</span>'
     : '<span class="bad">Offline</span>';
@@ -453,12 +458,12 @@ function renderHero(summary, session, settings) {
 
 function renderSummaryCards(summary, session, settings) {
   document.getElementById('cards').innerHTML = [
-    metricCard('Letture totali', summary.readings || 0, 'Database locale'),
-    metricCard('Ultima lettura', formatTime(summary.last_ts), latestOnline ? 'ESP32 online' : 'ESP32 offline'),
-    metricCard('Max punteggio', session.max_sleep_score || summary.max_sleep_score || 0, `Soglia ${session.threshold || settings.sleep_threshold || '-'}`),
-    metricCard('Comandi TV', summary.tv_commands || 0, 'Automatici registrati'),
-    metricCard('Comandi pendenti', summary.pending_commands || 0, 'Scadono automaticamente'),
-    metricCard('Modalita', Number(settings.auto_power_enabled ?? 1) === 1 ? 'Auto' : 'Monitor', 'Config letta dall ESP32')
+    metricCard('Total readings', summary.readings || 0, 'Local database'),
+    metricCard('Latest reading', formatTime(summary.last_ts), latestOnline ? 'ESP32 online' : 'ESP32 offline'),
+    metricCard('Max score', session.max_sleep_score || summary.max_sleep_score || 0, `Threshold ${session.threshold || settings.sleep_threshold || '-'}`),
+    metricCard('TV commands', summary.tv_commands || 0, 'Automatic records'),
+    metricCard('Pending commands', summary.pending_commands || 0, 'Expire automatically'),
+    metricCard('Mode', Number(settings.auto_power_enabled ?? 1) === 1 ? 'Auto' : 'Monitor', 'Config read by ESP32')
   ].join('');
 }
 
@@ -466,19 +471,19 @@ function renderSessionCards(session) {
   latestSession = session || {};
   const powerEvent = latestSession.session_power_event;
   const powerDetail = powerEvent
-    ? `Punteggio ${powerEvent.sleep_score ?? '-'}`
-    : 'Nessun evento registrato';
+    ? `Score ${powerEvent.sleep_score ?? '-'}`
+    : 'No event recorded';
 
   document.getElementById('sessionWindow').textContent =
     `${formatShortTime(latestSession.window_start)} - ${formatShortTime(latestSession.window_end)}`;
 
   document.getElementById('sessionCards').innerHTML = [
-    metricCard('Letture sessione', latestSession.readings || 0, latestSession.session_active ? 'Sessione attiva' : 'Sessione conclusa'),
-    metricCard('Prima presenza', formatTime(latestSession.first_in_bed_ts), `Nel letto ${formatDuration(latestSession.in_bed_seconds)}`),
-    metricCard('Tempo stabile', formatDuration(latestSession.stable_seconds), `${latestSession.out_of_bed_readings || 0} letture fuori letto`),
-    metricCard('Max punteggio', latestSession.max_sleep_score || 0, `Soglia ${latestSession.threshold ?? '-'}`),
-    metricCard('Spegnimento sessione', powerEvent ? formatTime(powerEvent.ts) : 'Mai', powerDetail),
-    metricCard('Modalita firmware', latestSession.mode || '-', 'Dall ultima lettura ESP32')
+    metricCard('Session readings', latestSession.readings || 0, latestSession.session_active ? 'Active session' : 'Closed session'),
+    metricCard('First in bed', formatTime(latestSession.first_in_bed_ts), `In bed ${formatDuration(latestSession.in_bed_seconds)}`),
+    metricCard('Stable time', formatDuration(latestSession.stable_seconds), `${latestSession.out_of_bed_readings || 0} out-of-bed readings`),
+    metricCard('Max score', latestSession.max_sleep_score || 0, `Threshold ${latestSession.threshold ?? '-'}`),
+    metricCard('Session TV OFF', powerEvent ? formatTime(powerEvent.ts) : 'Never', powerDetail),
+    metricCard('Firmware mode', latestSession.mode || '-', 'From latest ESP32 reading')
   ].join('');
 }
 
@@ -487,10 +492,10 @@ function renderSessionSummary(report) {
     `${formatShortTime(report.window_start)} - ${formatShortTime(report.window_end)}`;
   document.getElementById('sessionSummary').textContent = report.summary || '-';
   document.getElementById('sessionMetrics').innerHTML = [
-    ['Nel letto', formatDuration(report.in_bed_seconds)],
-    ['Stabile', formatDuration(report.stable_seconds)],
+    ['In bed', formatDuration(report.in_bed_seconds)],
+    ['Stable', formatDuration(report.stable_seconds)],
     ['Max score', report.max_sleep_score ?? 0],
-    ['Comandi TV', report.tv_commands ?? 0]
+    ['TV commands', report.tv_commands ?? 0]
   ].map(([label, value]) => `
     <div class="mini-metric">
       <span>${safe(label)}</span>
@@ -503,18 +508,18 @@ function renderScoreReason(readings) {
   const latest = readings.find((row) => row.score_reason) || readings[0];
 
   if (!latest) {
-    document.getElementById('scoreReasonText').textContent = 'Nessuna lettura disponibile.';
+    document.getElementById('scoreReasonText').textContent = 'No reading available.';
     document.getElementById('latestReasonMetrics').innerHTML = '';
     return;
   }
 
   document.getElementById('scoreReasonText').textContent =
-    latest.score_reason || 'Il firmware attuale non ha ancora inviato il motivo del punteggio.';
+    latest.score_reason || 'The current firmware has not sent a score reason yet.';
   document.getElementById('latestReasonMetrics').innerHTML = [
-    ['Ora', formatClock(latest.ts)],
+    ['Time', formatClock(latest.ts)],
     ['Score', latest.sleep_score ?? '-'],
-    ['Distanza', latest.dist_filtered ? `${latest.dist_filtered} cm` : '-'],
-    ['Stabile', latest.stable ? 'SI' : 'NO']
+    ['Distance', latest.dist_filtered ? `${latest.dist_filtered} cm` : '-'],
+    ['Stable', latest.stable ? 'YES' : 'NO']
   ].map(([label, value]) => `
     <div class="mini-metric">
       <span>${safe(label)}</span>
@@ -541,7 +546,7 @@ function renderSettings(settings) {
   autoModeLabel.textContent = autoOn ? 'Auto' : 'Monitor';
 
   document.getElementById('settingsUpdated').textContent =
-    latestSettings.updated_at ? `Aggiornate ${formatTime(latestSettings.updated_at)}` : 'Valori default';
+    latestSettings.updated_at ? `Updated ${formatTime(latestSettings.updated_at)}` : 'Default values';
 }
 
 function renderBroadlinkStatus(status) {
@@ -550,35 +555,35 @@ function renderBroadlinkStatus(status) {
   const detail = document.getElementById('broadlinkDetail');
 
   if (!latestBroadlink.library_ready) {
-    statusLabel.innerHTML = '<span class="bad">Libreria assente</span>';
-    detail.textContent = latestBroadlink.library_error || 'BroadLink non disponibile.';
+    statusLabel.innerHTML = '<span class="bad">Library missing</span>';
+    detail.textContent = latestBroadlink.library_error || 'Remote backend is not available.';
   } else if (latestBroadlink.ready) {
-    statusLabel.innerHTML = '<span class="ok">Pronto</span>';
-    detail.textContent = `${latestBroadlink.host} - codice OFF salvato`;
+    statusLabel.innerHTML = '<span class="ok">Ready</span>';
+    detail.textContent = `${latestBroadlink.provider || 'remote'} ${latestBroadlink.host || ''} - OFF code saved`;
   } else if (latestBroadlink.host) {
-    statusLabel.innerHTML = '<span class="warn">Da imparare</span>';
-    detail.textContent = `${latestBroadlink.host} - codice OFF non salvato`;
+    statusLabel.innerHTML = '<span class="warn">Needs learning</span>';
+    detail.textContent = `${latestBroadlink.host} - OFF code not saved`;
   } else {
-    statusLabel.innerHTML = '<span class="bad">Non configurato</span>';
-    detail.textContent = 'IP BroadLink mancante.';
+    statusLabel.innerHTML = '<span class="bad">Not configured</span>';
+    detail.textContent = 'Remote host is missing.';
   }
 }
 
 async function startBroadlinkLearning() {
   broadlinkLearnStartButton.disabled = true;
-  setStatus('BroadLink in apprendimento...');
+  setStatus('Remote learning mode is starting...');
 
   try {
-    const response = await fetch('/api/broadlink/learn/start', { method: 'POST' });
+    const response = await fetch('/api/remote/learn/start', { method: 'POST' });
     const result = await response.json();
     if (!response.ok) {
-      throw new Error(result.error || 'Apprendimento non avviato');
+      throw new Error(result.error || 'Learning mode did not start');
     }
 
     renderBroadlinkStatus(result);
-    setStatus('Ora invia OFF x3 dall ESP32 verso il BroadLink, poi premi Salva codice OFF.');
+    setStatus('Now send the TV OFF command toward the remote hub, then press Save OFF Code.');
   } catch (error) {
-    setStatus(`Errore BroadLink: ${error.message}`);
+    setStatus(`Remote error: ${error.message}`);
   } finally {
     broadlinkLearnStartButton.disabled = false;
   }
@@ -586,20 +591,20 @@ async function startBroadlinkLearning() {
 
 async function checkBroadlinkLearning() {
   broadlinkLearnCheckButton.disabled = true;
-  setStatus('Controllo codice OFF ricevuto...');
+  setStatus('Checking received OFF code...');
 
   try {
-    const response = await fetch('/api/broadlink/learn/check', { method: 'POST' });
+    const response = await fetch('/api/remote/learn/check', { method: 'POST' });
     const result = await response.json();
     if (!response.ok) {
-      throw new Error(result.error || 'Codice OFF non ricevuto');
+      throw new Error(result.error || 'OFF code was not received');
     }
 
     renderBroadlinkStatus(result);
     await refresh();
-    setStatus(`Codice OFF BroadLink salvato (${result.bytes} byte).`);
+    setStatus(`Remote OFF code saved (${result.bytes} bytes).`);
   } catch (error) {
-    setStatus(`Errore apprendimento BroadLink: ${error.message}`);
+    setStatus(`Remote learning error: ${error.message}`);
   } finally {
     broadlinkLearnCheckButton.disabled = false;
   }
@@ -614,7 +619,7 @@ async function postSettings(payload) {
   const result = await response.json();
 
   if (!response.ok) {
-    throw new Error(result.error || 'Impostazioni non salvate');
+    throw new Error(result.error || 'Settings were not saved');
   }
 
   renderSettings(result.settings);
@@ -623,7 +628,7 @@ async function postSettings(payload) {
 
 async function saveSettings(event) {
   event.preventDefault();
-  setStatus('Salvataggio impostazioni...');
+  setStatus('Saving settings...');
 
   const payload = {};
   Array.from(settingsForm.elements).forEach((element) => {
@@ -635,34 +640,34 @@ async function saveSettings(event) {
   try {
     await postSettings(payload);
     await refresh();
-    setStatus('Impostazioni salvate. L ESP32 le leggera al prossimo controllo.');
+    setStatus('Settings saved. The ESP32 will read them on its next check.');
   } catch (error) {
-    setStatus(`Errore impostazioni: ${error.message}`);
+    setStatus(`Settings error: ${error.message}`);
   }
 }
 
 async function toggleAutoMode() {
   const enabled = autoModeToggle.checked ? 1 : 0;
   autoModeLabel.textContent = enabled ? 'Auto' : 'Monitor';
-  setStatus(enabled ? 'Attivo spegnimento automatico...' : 'Passaggio a solo monitoraggio...');
+  setStatus(enabled ? 'Enabling automatic TV OFF...' : 'Switching to monitoring-only mode...');
 
   try {
     await postSettings({ auto_power_enabled: enabled });
     await refresh();
-    setStatus(enabled ? 'Spegnimento automatico attivo.' : 'Solo monitoraggio attivo.');
+    setStatus(enabled ? 'Automatic TV OFF is active.' : 'Monitoring-only mode is active.');
   } catch (error) {
     autoModeToggle.checked = !autoModeToggle.checked;
-    setStatus(`Errore modalita: ${error.message}`);
+    setStatus(`Mode error: ${error.message}`);
   }
 }
 
 function renderCalibration(calibration) {
   latestCalibration = calibration || {};
   document.getElementById('calibrationCards').innerHTML = [
-    metricCard('Campioni', calibration.samples || 0, `${calibration.in_bed_samples || 0} nel letto`),
-    metricCard('Distanza mediana', calibration.distance_median_cm ?? '-', `p10 ${calibration.distance_p10_cm ?? '-'} / p90 ${calibration.distance_p90_cm ?? '-'}`),
-    metricCard('Range suggerito', `${calibration.suggested_min_cm ?? '-'}-${calibration.suggested_max_cm ?? '-'} cm`, `Attuale ${calibration.current_min_cm}-${calibration.current_max_cm} cm`),
-    metricCard('Stabilita', `${Math.round((calibration.stable_rate || 0) * 100)}%`, `${calibration.stable_samples || 0} letture stabili`)
+    metricCard('Samples', calibration.samples || 0, `${calibration.in_bed_samples || 0} in bed`),
+    metricCard('Median distance', calibration.distance_median_cm ?? '-', `p10 ${calibration.distance_p10_cm ?? '-'} / p90 ${calibration.distance_p90_cm ?? '-'}`),
+    metricCard('Suggested range', `${calibration.suggested_min_cm ?? '-'}-${calibration.suggested_max_cm ?? '-'} cm`, `Current ${calibration.current_min_cm}-${calibration.current_max_cm} cm`),
+    metricCard('Stability', `${Math.round((calibration.stable_rate || 0) * 100)}%`, `${calibration.stable_samples || 0} stable readings`)
   ].join('');
 
   calibrationApplyButton.disabled = !calibration.suggested_min_cm || !calibration.suggested_max_cm;
@@ -676,28 +681,28 @@ function updateCalibrationWizard() {
   timer.textContent = calibrationSeconds > 0 ? `${calibrationSeconds}s` : '--';
 
   if (calibrationPhase === 'idle') {
-    title.textContent = 'Pronto';
-    detail.textContent = 'Sdraiati nel letto, poi avvia una sessione guidata. Alla fine potrai applicare il range consigliato.';
+    title.textContent = 'Ready';
+    detail.textContent = 'Lie in bed, then start the guided session. At the end you can apply the suggested range.';
     calibrationStartButton.disabled = false;
     calibrationNextButton.disabled = true;
   } else if (calibrationPhase === 'in_bed') {
-    title.textContent = 'Resta sdraiato';
-    detail.textContent = 'Respira normalmente e resta piu fermo possibile mentre il sensore raccoglie letture.';
+    title.textContent = 'Stay in bed';
+    detail.textContent = 'Breathe normally and stay as still as possible while the sensor collects readings.';
     calibrationStartButton.disabled = true;
     calibrationNextButton.disabled = true;
   } else if (calibrationPhase === 'out_bed_ready') {
-    title.textContent = 'Ora alzati dal letto';
-    detail.textContent = 'Quando sei fuori dal letto, premi passo successivo per controllare il fuori range.';
+    title.textContent = 'Now leave the bed';
+    detail.textContent = 'Once you are out of bed, press the next step to check the out-of-range behavior.';
     calibrationStartButton.disabled = true;
     calibrationNextButton.disabled = false;
   } else if (calibrationPhase === 'out_bed') {
-    title.textContent = 'Fuori dal letto';
-    detail.textContent = 'Resta fuori dal letto per qualche secondo. Questo aiuta a capire se il range e troppo largo.';
+    title.textContent = 'Out of bed';
+    detail.textContent = 'Stay out of bed for a few seconds. This helps detect whether the range is too wide.';
     calibrationStartButton.disabled = true;
     calibrationNextButton.disabled = true;
   } else if (calibrationPhase === 'done') {
-    title.textContent = 'Calibrazione completata';
-    detail.textContent = 'Controlla il range suggerito e applicalo se ti sembra coerente con la posizione reale del sensore.';
+    title.textContent = 'Calibration complete';
+    detail.textContent = 'Review the suggested range and apply it if it matches the real sensor placement.';
     calibrationStartButton.disabled = false;
     calibrationNextButton.disabled = true;
   }
@@ -727,32 +732,32 @@ function runCalibrationCountdown(nextPhase, seconds) {
 
 function startCalibrationWizard() {
   calibrationPhase = 'in_bed';
-  setStatus('Calibrazione: resta sdraiato per 30 secondi.');
+  setStatus('Calibration: stay in bed for 30 seconds.');
   runCalibrationCountdown('out_bed_ready', 30);
 }
 
 function nextCalibrationStep() {
   calibrationPhase = 'out_bed';
-  setStatus('Calibrazione: resta fuori dal letto per 20 secondi.');
+  setStatus('Calibration: stay out of bed for 20 seconds.');
   runCalibrationCountdown('done', 20);
 }
 
 async function applyCalibrationRange() {
   if (!latestCalibration.suggested_min_cm || !latestCalibration.suggested_max_cm) {
-    setStatus('Range suggerito non disponibile.');
+    setStatus('Suggested range is not available.');
     return;
   }
 
-  setStatus('Applico range letto suggerito...');
+  setStatus('Applying suggested bed range...');
   try {
     await postSettings({
       distance_min_cm: latestCalibration.suggested_min_cm,
       distance_max_cm: latestCalibration.suggested_max_cm
     });
     await refresh();
-    setStatus(`Range letto aggiornato a ${latestCalibration.suggested_min_cm}-${latestCalibration.suggested_max_cm} cm.`);
+    setStatus(`Bed range updated to ${latestCalibration.suggested_min_cm}-${latestCalibration.suggested_max_cm} cm.`);
   } catch (error) {
-    setStatus(`Errore calibrazione: ${error.message}`);
+    setStatus(`Calibration error: ${error.message}`);
   }
 }
 
@@ -784,17 +789,17 @@ function renderSleepChart(points = [], threshold) {
   const warn = styles.getPropertyValue('--warn').trim();
 
   if (!points.length) {
-    chartCaption.textContent = 'Nessun dato nella sessione recente';
-    chartTitle.textContent = chartMode === 'distance' ? 'Distanza filtrata' : 'Punteggio sonno';
+    chartCaption.textContent = 'No data in the recent session';
+    chartTitle.textContent = chartMode === 'distance' ? 'Filtered distance' : 'Sleep score';
     context.fillStyle = muted;
     context.font = '13px system-ui, sans-serif';
-    context.fillText('Nessun dato da mostrare', 16, 36);
+    context.fillText('No data to show', 16, 36);
     return;
   }
 
   chartCaption.textContent =
     `${formatShortTime(points[0].ts)} - ${formatShortTime(points[points.length - 1].ts)}`;
-  chartTitle.textContent = chartMode === 'distance' ? 'Distanza filtrata' : 'Punteggio sonno';
+  chartTitle.textContent = chartMode === 'distance' ? 'Filtered distance' : 'Sleep score';
 
   const padding = { top: 18, right: 18, bottom: 30, left: 40 };
   const plotWidth = width - padding.left - padding.right;
@@ -814,15 +819,15 @@ function renderSleepChart(points = [], threshold) {
     yMin = Math.max(0, Math.min(...values, minSetting || Infinity) - 10);
     yMax = Math.max(...values, maxSetting || 0, yMin + 10) + 10;
     guideLines = [
-      { value: minSetting, label: 'Min letto', color: warn },
-      { value: maxSetting, label: 'Max letto', color: warn }
+      { value: minSetting, label: 'Bed min', color: warn },
+      { value: maxSetting, label: 'Bed max', color: warn }
     ].filter((line) => line.value > 0);
   } else {
     values = points.map((point) => Number(point.sleep_score || 0));
     const thresholdValue = Number(threshold || points.find((point) => point.threshold)?.threshold || 0);
     yMin = 0;
     yMax = Math.ceil(Math.max(...values, thresholdValue, 10) / 10) * 10;
-    guideLines = thresholdValue > 0 ? [{ value: thresholdValue, label: 'Soglia', color: bad }] : [];
+    guideLines = thresholdValue > 0 ? [{ value: thresholdValue, label: 'Threshold', color: bad }] : [];
   }
 
   const yFor = (value) => padding.top + (1 - ((value - yMin) / Math.max(1, yMax - yMin))) * plotHeight;
@@ -926,7 +931,7 @@ function renderEvents(events) {
   if (!events.length) {
     eventRows.innerHTML = `
       <tr>
-        <td class="empty-row" colspan="5">Nessun evento registrato.</td>
+        <td class="empty-row" colspan="5">No events recorded.</td>
       </tr>
     `;
     return;
@@ -949,7 +954,7 @@ function renderCommands(commands) {
   if (!commands.length) {
     commandRows.innerHTML = `
       <tr>
-        <td class="empty-row" colspan="5">Nessun comando manuale registrato.</td>
+        <td class="empty-row" colspan="5">No manual commands recorded.</td>
       </tr>
     `;
     return;
@@ -963,7 +968,7 @@ function renderCommands(commands) {
       <td>${command.status === 'pending' ? safe(formatRemaining(command.expires_at)) : formatTime(command.completed_at)}</td>
       <td>
         ${command.status === 'pending'
-          ? `<button class="small-button" type="button" data-cancel-command="${command.id}">Annulla</button>`
+          ? `<button class="small-button" type="button" data-cancel-command="${command.id}">Cancel</button>`
           : ''}
       </td>
     </tr>
@@ -976,7 +981,7 @@ function renderReadings(readings) {
   if (!readings.length) {
     rows.innerHTML = `
       <tr>
-        <td class="empty-row" colspan="9">Nessuna lettura registrata.</td>
+        <td class="empty-row" colspan="9">No readings recorded.</td>
       </tr>
     `;
     return;
@@ -992,7 +997,7 @@ function renderReadings(readings) {
       <td>${row.dist_filtered ?? ''}</td>
       <td>${row.sleep_score ?? ''}</td>
       <td>${safe(row.score_reason || '')}</td>
-      <td>${row.tv_command_sent ? 'SPENTA' : ''}</td>
+      <td>${row.tv_command_sent ? 'OFF' : ''}</td>
     </tr>
   `).join('');
 }
@@ -1001,7 +1006,7 @@ async function refresh() {
   const [summary, settings, broadlink, sessionSummary, calibration, session, series, events, commands, readings] = await Promise.all([
     fetch('/api/summary').then((response) => response.json()),
     fetch('/api/settings').then((response) => response.json()),
-    fetch('/api/broadlink/status').then((response) => response.json()),
+    fetch('/api/remote/status').then((response) => response.json()),
     fetch('/api/session-summary').then((response) => response.json()),
     fetch('/api/calibration').then((response) => response.json()),
     fetch('/api/session').then((response) => response.json()),
@@ -1084,10 +1089,10 @@ chartModeButtons.forEach((button) => {
 });
 updateCalibrationWizard();
 refresh().catch((error) => {
-  setStatus(`Errore caricamento dashboard: ${error.message}`);
+  setStatus(`Dashboard load error: ${error.message}`);
 });
 setInterval(() => {
   refresh().catch((error) => {
-    setStatus(`Errore aggiornamento dashboard: ${error.message}`);
+    setStatus(`Dashboard refresh error: ${error.message}`);
   });
 }, 10000);

@@ -2,7 +2,7 @@ import os
 import sqlite3
 from datetime import datetime, timedelta
 
-from .config import DB_PATH
+from .config import DB_PATH, DEFAULT_SENSOR_DEVICE_ID
 from .time_utils import now_iso
 
 
@@ -235,7 +235,7 @@ def row_to_dict(cursor, row):
 def insert_reading(payload):
     received_at = now_iso()
     ts = payload.get("ts") or received_at
-    device_id = str(payload.get("device_id") or "esp32-tv-sleep")
+    device_id = str(payload.get("device_id") or DEFAULT_SENSOR_DEVICE_ID)
 
     values = {
         "ts": ts,
@@ -274,7 +274,7 @@ def insert_reading(payload):
 def insert_event(payload):
     received_at = now_iso()
     ts = payload.get("ts") or received_at
-    device_id = str(payload.get("device_id") or "esp32-tv-sleep")
+    device_id = str(payload.get("device_id") or DEFAULT_SENSOR_DEVICE_ID)
     event_type = str(payload.get("event_type") or "unknown")
 
     with sqlite3.connect(DB_PATH) as conn:
@@ -401,7 +401,7 @@ def update_settings(payload):
 
 def create_command(payload):
     created_at = now_iso()
-    device_id = str(payload.get("device_id") or "camera-tv-esp32")
+    device_id = str(payload.get("device_id") or DEFAULT_SENSOR_DEVICE_ID)
     command_type = str(payload.get("command_type") or "tv_power")
     repeat_count = bounded_int(payload.get("repeat_count"), 1, 1, 5)
     expires_at = command_expires_at(payload.get("ttl_seconds"))
@@ -543,7 +543,7 @@ def cancel_command(command_id):
             SET status = 'cancelled', completed_at = ?, note = COALESCE(note, ?)
             WHERE id = ? AND status = 'pending'
             """,
-            (now_iso(), "Annullato dalla dashboard", command_id),
+            (now_iso(), "Cancelled from dashboard", command_id),
         )
 
     if cursor.rowcount == 0:
@@ -558,7 +558,9 @@ def get_last_power_event(start=None, end=None):
         WHERE event_type IN (
             'tv_power_off_attempt',
             'tv_power_broadlink_auto',
-            'tv_power_broadlink_manual'
+            'tv_power_broadlink_manual',
+            'tv_off_remote_auto',
+            'tv_off_remote_manual'
         )
     """
     params = []

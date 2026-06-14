@@ -12,11 +12,19 @@
 #endif
 
 #ifndef WIFI_SSID_VALUE
-#define WIFI_SSID_VALUE "INSERISCI_NOME_WIFI"
+#define WIFI_SSID_VALUE "YOUR_WIFI_NAME"
 #endif
 
 #ifndef WIFI_PASSWORD_VALUE
-#define WIFI_PASSWORD_VALUE "INSERISCI_PASSWORD_WIFI"
+#define WIFI_PASSWORD_VALUE "YOUR_WIFI_PASSWORD"
+#endif
+
+#ifndef DEVICE_ID_VALUE
+#define DEVICE_ID_VALUE "tv-sleep-sensor"
+#endif
+
+#ifndef SERVER_BASE_URL_VALUE
+#define SERVER_BASE_URL_VALUE "http://YOUR_SERVER_IP:8010"
 #endif
 
 ld2410 radar;
@@ -30,12 +38,8 @@ IRsend irsend(IR_LED_PIN);
 const bool INVIA_DATI_SERVER = true;
 const char WIFI_SSID[] = WIFI_SSID_VALUE;
 const char WIFI_PASSWORD[] = WIFI_PASSWORD_VALUE;
-const char DEVICE_ID[] = "camera-tv-esp32";
-const char SERVER_READINGS_URL[] = "http://192.168.1.196:8010/api/readings";
-const char SERVER_EVENTS_URL[] = "http://192.168.1.196:8010/api/events";
-const char SERVER_COMMAND_NEXT_URL[] = "http://192.168.1.196:8010/api/commands/next";
-const char SERVER_COMMAND_COMPLETE_URL[] = "http://192.168.1.196:8010/api/commands/complete";
-const char SERVER_SETTINGS_URL[] = "http://192.168.1.196:8010/api/settings/device";
+const char DEVICE_ID[] = DEVICE_ID_VALUE;
+const char SERVER_BASE_URL[] = SERVER_BASE_URL_VALUE;
 const unsigned long INTERVALLO_INVIO_SERVER_MS = 10000;
 const unsigned long INTERVALLO_CONTROLLO_COMANDI_MS = 5000;
 const unsigned long INTERVALLO_SETTINGS_SERVER_MS = 60000;
@@ -74,9 +78,24 @@ int storicoDistanzeCount = 0;
 int storicoDistanzeIndex = 0;
 
 bool wifiConfigurato() {
-  return strcmp(WIFI_SSID, "INSERISCI_NOME_WIFI") != 0 &&
-         strcmp(WIFI_PASSWORD, "INSERISCI_PASSWORD_WIFI") != 0 &&
+  return strcmp(WIFI_SSID, "YOUR_WIFI_NAME") != 0 &&
+         strcmp(WIFI_PASSWORD, "YOUR_WIFI_PASSWORD") != 0 &&
          strlen(WIFI_SSID) > 0;
+}
+
+bool serverConfigured() {
+  return strcmp(SERVER_BASE_URL, "http://YOUR_SERVER_IP:8010") != 0 &&
+         strlen(SERVER_BASE_URL) > 0;
+}
+
+String serverUrl(const char* path) {
+  String base = String(SERVER_BASE_URL);
+
+  if (base.endsWith("/")) {
+    base.remove(base.length() - 1);
+  }
+
+  return base + path;
 }
 
 void configuraOTA() {
@@ -87,21 +106,21 @@ void configuraOTA() {
   ArduinoOTA.setHostname(DEVICE_ID);
 
   ArduinoOTA.onStart([]() {
-    Serial.println("OTA: inizio aggiornamento firmware");
+    Serial.println("OTA: firmware update started");
   });
 
   ArduinoOTA.onEnd([]() {
-    Serial.println("OTA: aggiornamento completato");
+    Serial.println("OTA: update completed");
   });
 
   ArduinoOTA.onError([](ota_error_t error) {
-    Serial.print("OTA: errore ");
+    Serial.print("OTA: error ");
     Serial.println(error);
   });
 
   ArduinoOTA.begin();
   otaConfigurata = true;
-  Serial.println("OTA pronto: puoi aggiornare via WiFi dall IDE Arduino");
+  Serial.println("OTA ready: you can update over Wi-Fi from the Arduino IDE");
 }
 
 void gestisciOTA() {
@@ -115,11 +134,11 @@ void gestisciOTA() {
 
 void connettiWifi() {
   if (!INVIA_DATI_SERVER || !wifiConfigurato()) {
-    Serial.println("WiFi logging non configurato");
+    Serial.println("Wi-Fi logging is not configured");
     return;
   }
 
-  Serial.print("Connessione WiFi a ");
+  Serial.print("Connecting Wi-Fi to ");
   Serial.println(WIFI_SSID);
 
   WiFi.mode(WIFI_STA);
@@ -135,11 +154,11 @@ void connettiWifi() {
   Serial.println();
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("WiFi connesso | IP ESP32: ");
+    Serial.print("Wi-Fi connected | ESP32 IP: ");
     Serial.println(WiFi.localIP());
     configuraOTA();
   } else {
-    Serial.println("WiFi non connesso: continuo senza invio dati");
+    Serial.println("Wi-Fi not connected: continuing without data upload");
   }
 }
 
@@ -157,7 +176,7 @@ void assicuratiWifi() {
   }
 
   ultimoTentativoWifi = millis();
-  Serial.println("WiFi disconnesso: nuovo tentativo");
+  Serial.println("Wi-Fi disconnected: retrying");
   WiFi.disconnect();
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
@@ -182,8 +201,8 @@ String escapeJson(const String& valore) {
   return risultato;
 }
 
-bool postJson(const char* url, const String& json) {
-  if (!INVIA_DATI_SERVER || !wifiConfigurato() || WiFi.status() != WL_CONNECTED) {
+bool postJson(const String& url, const String& json) {
+  if (!INVIA_DATI_SERVER || !wifiConfigurato() || !serverConfigured() || WiFi.status() != WL_CONNECTED) {
     return false;
   }
 
@@ -202,7 +221,7 @@ bool postJson(const char* url, const String& json) {
 }
 
 bool getJson(const String& url, String& response) {
-  if (!INVIA_DATI_SERVER || !wifiConfigurato() || WiFi.status() != WL_CONNECTED) {
+  if (!INVIA_DATI_SERVER || !wifiConfigurato() || !serverConfigured() || WiFi.status() != WL_CONNECTED) {
     return false;
   }
 
@@ -288,7 +307,7 @@ void caricaImpostazioniServer(bool forza = false) {
   ultimoControlloSettingsServer = millis();
 
   String response;
-  String url = String(SERVER_SETTINGS_URL) + "?device_id=" + String(DEVICE_ID);
+  String url = serverUrl("/api/settings/device") + "?device_id=" + String(DEVICE_ID);
 
   if (!getJson(url, response)) {
     return;
@@ -337,7 +356,7 @@ void completaComandoServer(int commandId, const char* status, int distanzaFiltra
   json += ",\"note\":\"" + String(note) + "\"";
   json += "}";
 
-  postJson(SERVER_COMMAND_COMPLETE_URL, json);
+  postJson(serverUrl("/api/commands/complete"), json);
 }
 
 bool controllaComandiServer(int distanzaFiltrata) {
@@ -348,7 +367,7 @@ bool controllaComandiServer(int distanzaFiltrata) {
   ultimoControlloComandiServer = millis();
 
   String response;
-  String url = String(SERVER_COMMAND_NEXT_URL) + "?device_id=" + String(DEVICE_ID);
+  String url = serverUrl("/api/commands/next") + "?device_id=" + String(DEVICE_ID);
 
   if (!getJson(url, response)) {
     return false;
@@ -367,7 +386,7 @@ bool controllaComandiServer(int distanzaFiltrata) {
 
   inviaPowerTv(repeatCount);
   tvGiaSpenta = true;
-  completaComandoServer(commandId, "done", distanzaFiltrata, "Spegnimento TV inviato dall ESP32");
+  completaComandoServer(commandId, "done", distanzaFiltrata, "TV OFF sent by ESP32");
 
   return true;
 }
@@ -414,9 +433,9 @@ void inviaLetturaServer(
   json += ",\"score_reason\":\"" + escapeJson(scoreReason) + "\"";
   json += "}";
 
-  bool inviato = postJson(SERVER_READINGS_URL, json);
+  bool inviato = postJson(serverUrl("/api/readings"), json);
 
-  Serial.print(" | Server lettura: ");
+  Serial.print(" | Server reading: ");
   Serial.print(inviato ? "OK" : "NO");
 }
 
@@ -429,9 +448,9 @@ void inviaEventoServer(const char* eventType, int distanzaFiltrata, const char* 
   json += ",\"note\":\"" + String(note) + "\"";
   json += "}";
 
-  bool inviato = postJson(SERVER_EVENTS_URL, json);
+  bool inviato = postJson(serverUrl("/api/events"), json);
 
-  Serial.print(" | Server evento: ");
+  Serial.print(" | Server event: ");
   Serial.print(inviato ? "OK" : "NO");
 }
 
@@ -484,16 +503,16 @@ void configuraRadarSeServe() {
     return;
   }
 
-  Serial.println("Controllo configurazione LD2410C");
+  Serial.println("Checking LD2410C configuration");
 
   if (!radar.requestCurrentConfiguration()) {
-    Serial.println("Configurazione LD2410C non letta: continuo con i valori attuali");
+    Serial.println("LD2410C configuration was not read: keeping current values");
     return;
   }
 
-  Serial.print("Config attuale radar | Max mov gate: ");
+  Serial.print("Current radar config | Max moving gate: ");
   Serial.print(radar.max_moving_gate);
-  Serial.print(" | Max fermo gate: ");
+  Serial.print(" | Max stationary gate: ");
   Serial.print(radar.max_stationary_gate);
   Serial.print(" | Timeout: ");
   Serial.print(radar.sensor_idle_time);
@@ -505,25 +524,25 @@ void configuraRadarSeServe() {
     radar.sensor_idle_time == RADAR_INACTIVITY_TIMER_S;
 
   if (configurazioneGiaCorretta) {
-    Serial.println("Configurazione LD2410C gia corretta");
+    Serial.println("LD2410C configuration is already correct");
     return;
   }
 
-  Serial.println("Imposto LD2410C su zona corta: circa 1,5 m");
+  Serial.println("Setting LD2410C to short range: about 1.5 m");
 
   if (!radar.setMaxValues(RADAR_MAX_MOVING_GATE, RADAR_MAX_STATIONARY_GATE, RADAR_INACTIVITY_TIMER_S)) {
-    Serial.println("Errore: configurazione LD2410C non salvata");
+    Serial.println("Error: LD2410C configuration was not saved");
     return;
   }
 
-  Serial.println("Configurazione LD2410C salvata, riavvio il sensore");
+  Serial.println("LD2410C configuration saved, restarting sensor");
 
   if (radar.requestRestart()) {
     delay(1000);
     radar.begin(Serial2);
-    Serial.println("LD2410C riavviato");
+    Serial.println("LD2410C restarted");
   } else {
-    Serial.println("Attenzione: riavvio LD2410C non riuscito");
+    Serial.println("Warning: LD2410C restart failed");
   }
 }
 
@@ -547,28 +566,28 @@ void setup() {
   Serial.begin(115200);
   delay(500);
 
-  Serial.println("Avvio sistema TV sleep - versione stabilita distanza");
+  Serial.println("Starting TV Sleep Monitor - filtered distance build");
 
   Serial2.begin(256000, SERIAL_8N1, RADAR_RX_PIN, RADAR_TX_PIN);
 
   if (radar.begin(Serial2)) {
-    Serial.println("LD2410C collegato correttamente");
+    Serial.println("LD2410C connected");
     configuraRadarSeServe();
   } else {
-    Serial.println("Errore: LD2410C non trovato");
+    Serial.println("Error: LD2410C not found");
   }
 
   irsend.begin();
   connettiWifi();
   caricaImpostazioniServer(true);
 
-  Serial.print("Spegnimento automatico: ");
-  Serial.println(autoSpegnimentoAttivo ? "ATTIVO" : "SOLO MONITORAGGIO");
-  Serial.print("Soglia spegnimento: ");
+  Serial.print("Automatic TV OFF: ");
+  Serial.println(autoSpegnimentoAttivo ? "ON" : "MONITOR ONLY");
+  Serial.print("Sleep threshold: ");
   Serial.print(punteggioSpegnimento);
-  Serial.println(" secondi circa");
+  Serial.println(" approximate seconds");
 
-  Serial.println("Sistema pronto");
+  Serial.println("System ready");
 }
 
 void loop() {
@@ -629,10 +648,10 @@ void loop() {
       ultimaDistanzaValida = -1;
       resetFiltroDistanza();
       tvGiaSpenta = false;
-      motivoPunteggio = "reset: fuori dal letto";
+      motivoPunteggio = "reset: out of bed";
     } else {
       punteggioSonno -= 1;
-      motivoPunteggio = "-1 fuori range letto";
+      motivoPunteggio = "-1 outside bed range";
     }
   } else {
     lettureFuoriLettoConsecutive = 0;
@@ -643,16 +662,16 @@ void loop() {
 
     if (movimentoForte) {
       punteggioSonno -= 8;
-      motivoPunteggio = "-8 movimento forte";
+      motivoPunteggio = "-8 strong movement";
     } else if (distanzaStabile && fermo) {
       punteggioSonno += 1;
-      motivoPunteggio = "+1 stabile e fermo";
+      motivoPunteggio = "+1 stable and still";
     } else if (distanzaStabile) {
       punteggioSonno += 1;
-      motivoPunteggio = "+1 distanza stabile";
+      motivoPunteggio = "+1 stable distance";
     } else {
       punteggioSonno -= 1;
-      motivoPunteggio = "-1 distanza instabile";
+      motivoPunteggio = "-1 unstable distance";
     }
 
     ultimaDistanzaValida = distanzaPerLogica;
@@ -674,59 +693,59 @@ void loop() {
   Serial.print("Radar: ");
   Serial.print(radarConnesso ? "OK" : "NO");
 
-  Serial.print(" | Presenza: ");
-  Serial.print(presenza ? "SI" : "NO");
+  Serial.print(" | Presence: ");
+  Serial.print(presenza ? "YES" : "NO");
 
-  Serial.print(" | Nel letto: ");
-  Serial.print(personaNelLetto ? "SI" : "NO");
+  Serial.print(" | In bed: ");
+  Serial.print(personaNelLetto ? "YES" : "NO");
 
-  Serial.print(" | Fuori letto: ");
+  Serial.print(" | Out of bed: ");
   Serial.print(lettureFuoriLettoConsecutive);
   Serial.print("/");
   Serial.print(maxLettureFuoriLetto);
 
   Serial.print(" | Mov: ");
-  Serial.print(movimento ? "SI" : "NO");
+  Serial.print(movimento ? "YES" : "NO");
 
   Serial.print(" | E mov: ");
   Serial.print(energiaMovimento);
 
-  Serial.print(" | Fermo: ");
-  Serial.print(fermo ? "SI" : "NO");
+  Serial.print(" | Still: ");
+  Serial.print(fermo ? "YES" : "NO");
 
-  Serial.print(" | E fermo: ");
+  Serial.print(" | E still: ");
   Serial.print(energiaFermo);
 
   Serial.print(" | Dist raw: ");
   Serial.print(distanzaScelta);
 
-  Serial.print(" | Dist filtrata: ");
+  Serial.print(" | Dist filtered: ");
   Serial.print(distanzaFiltrata);
 
-  Serial.print(" | Cambio dist: ");
+  Serial.print(" | Dist change: ");
   Serial.print(cambioDistanza);
 
-  Serial.print(" | Stabile: ");
-  Serial.print(distanzaStabile ? "SI" : "NO");
+  Serial.print(" | Stable: ");
+  Serial.print(distanzaStabile ? "YES" : "NO");
 
-  Serial.print(" | Punteggio sonno: ");
+  Serial.print(" | Sleep score: ");
   Serial.print(punteggioSonno);
 
-  Serial.print(" | Motivo: ");
+  Serial.print(" | Reason: ");
   Serial.print(motivoPunteggio);
 
   if (comandoDashboardThisLoop) {
-    Serial.print(" | SPEGNI TV DASHBOARD");
+    Serial.print(" | DASHBOARD TV OFF");
   }
 
   if (punteggioSonno >= punteggioSpegnimento && !tvGiaSpenta && autoSpegnimentoAttivo) {
-    Serial.print(" | SPENGO TV");
+    Serial.print(" | TV OFF");
     inviaPowerTv(1);
     tvGiaSpenta = true;
     tvCommandSentThisLoop = true;
     comandoAutomaticoThisLoop = true;
   } else if (punteggioSonno >= punteggioSpegnimento && !autoSpegnimentoAttivo) {
-    Serial.print(" | SOGLIA RAGGIUNTA - SOLO MONITORAGGIO");
+    Serial.print(" | THRESHOLD REACHED - MONITOR ONLY");
   }
 
   inviaLetturaServer(
@@ -746,7 +765,7 @@ void loop() {
   );
 
   if (comandoAutomaticoThisLoop) {
-    inviaEventoServer("tv_power_off_attempt", distanzaFiltrata, "Soglia sonno raggiunta");
+    inviaEventoServer("tv_power_off_attempt", distanzaFiltrata, "Sleep threshold reached");
   }
 
   Serial.println();

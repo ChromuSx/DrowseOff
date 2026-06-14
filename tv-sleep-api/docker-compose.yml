@@ -4,14 +4,17 @@ services:
     container_name: tv-sleep-api
     user: "1000:1000"
     environment:
-      - TZ=Europe/Rome
-      - TV_SLEEP_DB=/data/tv_sleep.db
-      - TV_SLEEP_PORT=8010
-      - BROADLINK_HOST=192.168.1.107
-      - BROADLINK_PACKET_PATH=/data/broadlink_tv_off.b64
-      - BROADLINK_AUTO_ENABLED=1
+      - TZ=${TZ:-UTC}
+      - TV_SLEEP_DB=${TV_SLEEP_DB:-/data/tv_sleep.db}
+      - TV_SLEEP_PORT=${TV_SLEEP_PORT:-8010}
+      - DEFAULT_SENSOR_DEVICE_ID=${DEFAULT_SENSOR_DEVICE_ID:-tv-sleep-sensor}
+      - REMOTE_PROVIDER=${REMOTE_PROVIDER:-broadlink}
+      - REMOTE_AUTO_ENABLED=${REMOTE_AUTO_ENABLED:-1}
+      - BROADLINK_HOST=${BROADLINK_HOST:-}
+      - BROADLINK_PACKET_PATH=${BROADLINK_PACKET_PATH:-/data/broadlink_tv_off.b64}
+      - BROADLINK_AUTO_ENABLED=${BROADLINK_AUTO_ENABLED:-1}
     ports:
-      - "8010:8010"
+      - "${TV_SLEEP_PORT:-8010}:8010"
     volumes:
       - ./data:/data
     restart: unless-stopped

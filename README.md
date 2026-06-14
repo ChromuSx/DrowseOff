@@ -1,83 +1,102 @@
 # TV Sleep Monitor
 
-Progetto DIY per rilevare quando una persona si addormenta davanti alla TV e
-spegnere la TV Samsung tramite un ESP32, un sensore radar LD2410C, un mini PC
-locale e un BroadLink RM Mini3.
+A DIY project that detects when someone is likely falling asleep while watching
+TV, stores the sensor readings locally, and turns the TV off through a remote
+control backend.
 
-Il progetto include anche una dashboard locale sul mini PC per vedere letture,
-calibrazione, comandi TV, sessioni recenti e impostazioni.
+The current reference setup uses:
 
-## Come funziona
+- an ESP32 near the bed;
+- an LD2410C mmWave presence sensor;
+- a local mini PC or home server running Docker;
+- a web dashboard with SQLite storage;
+- a BroadLink RM Mini3 near the TV for reliable IR output.
 
-```text
-LD2410C + ESP32 vicino al letto
-  -> letture presenza/stabilita via Wi-Fi
-  -> mini PC con dashboard e database SQLite
-  -> BroadLink RM Mini3 vicino alla TV
-  -> comando IR OFF TV
-```
+The ESP32 does not need to be close to the TV. It only measures presence,
+distance, and stability near the bed. The TV OFF command can be handled by a
+remote hub such as BroadLink, or by the ESP32 IR transmitter fallback.
 
-L'ESP32 non deve piu essere vicino alla TV: rileva solo presenza, distanza e
-stabilita nel letto. Lo spegnimento IR affidabile viene fatto dal BroadLink,
-posizionato vicino alla TV.
-
-## Struttura
+## How It Works
 
 ```text
-sketch_may20a/     Firmware ESP32 Arduino
-tv-sleep-api/      Server Python + dashboard web + SQLite
+LD2410C + ESP32 near the bed
+  -> presence and stability readings over Wi-Fi
+  -> local API, dashboard, and SQLite database
+  -> remote control backend near the TV
+  -> TV OFF IR command
 ```
 
-## Segreti locali
+## Project Structure
 
-Lo sketch Arduino legge le credenziali Wi-Fi da:
+```text
+sketch_may20a/     ESP32 Arduino firmware
+tv-sleep-api/      Python API, web dashboard, and SQLite storage
+```
+
+## Local Secrets
+
+The Arduino sketch reads Wi-Fi and server settings from:
 
 ```text
 sketch_may20a/secrets.h
 ```
 
-Quel file e ignorato da Git. Per creare una nuova configurazione:
+That file is ignored by Git. Create it from the example:
 
 ```text
 cp sketch_may20a/secrets.example.h sketch_may20a/secrets.h
 ```
 
-Poi modifica `secrets.h` con SSID e password reali.
+Then set your real Wi-Fi name, Wi-Fi password, device ID, and server URL.
+
+The server reads local deployment settings from:
+
+```text
+tv-sleep-api/.env
+```
+
+That file is also ignored by Git. Create it from:
+
+```text
+tv-sleep-api/.env.example
+```
 
 ## Dashboard
 
-Sul mini PC la dashboard gira su:
+After starting the server, open:
 
 ```text
-http://192.168.1.196:8010/
+http://YOUR_SERVER_IP:8010/
 ```
 
-Vedi `tv-sleep-api/README.md` per avvio Docker, API e note operative.
+See `tv-sleep-api/README.md` for Docker startup, API endpoints, and operational
+notes.
 
-## Componenti principali
+## Sleep Threshold
 
-- ESP32 NodeMCU
-- Sensore presenza LD2410C
-- Mini PC con Docker per dashboard e database
-- BroadLink RM Mini3 collegato al Wi-Fi e posizionato vicino alla TV
+The default sleep threshold is `600`. It is the score the firmware must reach
+before requesting a TV OFF command. The firmware updates the score roughly once
+per second:
 
-Il vecchio modulo trasmettitore IR 38 kHz puo restare come backup software, ma
-non e piu necessario nell'installazione finale.
+- the score rises when the person is in bed and stable;
+- strong movement lowers the score;
+- leaving the bed or losing the valid bed-range target resets the score.
 
-## Soglia spegnimento
+With the default threshold of `600`, a calm session takes roughly 10 minutes to
+reach the automatic TV OFF point. Lower values turn the TV off sooner; higher
+values wait longer.
 
-La soglia di default e `600`. Rappresenta il punteggio sonno da raggiungere
-prima di comandare lo spegnimento. Il firmware aggiorna il punteggio circa una
-volta al secondo:
+## Remote Control Backends
 
-- se sei nel letto e stabile, il punteggio sale;
-- se ti muovi molto, scende;
-- se esci dal letto o il sensore perde la presenza, si azzera.
+The first stable backend is BroadLink. The dashboard can learn and replay a TV
+OFF IR code through a BroadLink RM Mini device.
 
-Con soglia `600`, in condizioni tranquille servono circa 10 minuti di stabilita.
-Valori piu bassi spengono prima, valori piu alti aspettano di piu.
+The firmware still supports an ESP32 IR transmitter fallback for users who want
+a direct IR module instead of a network remote hub. In practice, a hub placed
+near the TV is usually more reliable than a weak IR LED near the bed.
 
-## Note
+## Repository Hygiene
 
-Il repository non contiene database, credenziali Wi-Fi o file generati. Il primo
-upload del firmware va fatto via USB; dopo, lo sketch abilita anche Arduino OTA.
+This repository should not contain databases, Wi-Fi credentials, private IP
+addresses, learned IR packets, or generated build outputs. Keep those in ignored
+local files such as `secrets.h`, `.env`, and `tv-sleep-api/data/`.

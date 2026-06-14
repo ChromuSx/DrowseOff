@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="it">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -20,29 +20,29 @@
   <header class="topbar">
     <div>
       <h1>TV Sleep Monitor</h1>
-      <p class="page-subtitle">Stato sessione, sensore, comandi TV e calibrazione in un posto solo.</p>
+      <p class="page-subtitle">Session status, sensor readings, TV commands, and calibration in one place.</p>
     </div>
     <div class="header-actions">
-      <div class="theme-switch" role="group" aria-label="Tema dashboard">
-        <button class="theme-option" type="button" data-theme-option="system">Sistema</button>
-        <button class="theme-option" type="button" data-theme-option="light">Chiaro</button>
-        <button class="theme-option" type="button" data-theme-option="dark">Scuro</button>
+      <div class="theme-switch" role="group" aria-label="Dashboard theme">
+        <button class="theme-option" type="button" data-theme-option="system">System</button>
+        <button class="theme-option" type="button" data-theme-option="light">Light</button>
+        <button class="theme-option" type="button" data-theme-option="dark">Dark</button>
       </div>
-      <a class="secondary-button" href="/api/export/readings.csv" download>CSV letture</a>
+      <a class="secondary-button" href="/api/export/readings.csv" download>Readings CSV</a>
     </div>
   </header>
 
   <div class="status-message" id="statusMessage" role="status" aria-live="polite"></div>
 
-  <section class="hero-status" aria-label="Stato principale">
+  <section class="hero-status" aria-label="Main status">
     <div class="verdict-card">
       <div class="verdict-kicker">
         <span class="status-pill" id="verdictBadge">-</span>
         <span id="autoModePill" class="status-pill neutral">-</span>
       </div>
-      <h2 id="verdictTitle">Caricamento dati...</h2>
-      <p id="verdictDetail">Attendo le ultime letture dall'ESP32.</p>
-      <div class="score-progress" aria-label="Avanzamento punteggio rispetto alla soglia">
+      <h2 id="verdictTitle">Loading data...</h2>
+      <p id="verdictDetail">Waiting for the latest ESP32 readings.</p>
+      <div class="score-progress" aria-label="Score progress toward threshold">
         <div class="score-progress-fill" id="scoreProgressFill"></div>
       </div>
       <div class="score-progress-label" id="scoreProgressLabel">-</div>
@@ -54,23 +54,23 @@
         <strong id="deviceState">-</strong>
       </div>
       <div class="status-tile">
-        <span>Ultima lettura</span>
+        <span>Latest reading</span>
         <strong id="lastSeenLabel">-</strong>
       </div>
       <div class="status-tile">
-        <span>Comandi pendenti</span>
+        <span>Pending commands</span>
         <strong id="pendingCommandsLabel">-</strong>
       </div>
     </div>
   </section>
 
-  <nav class="tabbar" aria-label="Sezioni dashboard">
-    <button class="tab-button" type="button" data-tab-target="overview">Panoramica</button>
-    <button class="tab-button" type="button" data-tab-target="session">Sessione</button>
-    <button class="tab-button" type="button" data-tab-target="calibration">Calibrazione</button>
-    <button class="tab-button" type="button" data-tab-target="commands">Comandi TV</button>
-    <button class="tab-button" type="button" data-tab-target="settings">Impostazioni</button>
-    <button class="tab-button" type="button" data-tab-target="data">Dati</button>
+  <nav class="tabbar" aria-label="Dashboard sections">
+    <button class="tab-button" type="button" data-tab-target="overview">Overview</button>
+    <button class="tab-button" type="button" data-tab-target="session">Session</button>
+    <button class="tab-button" type="button" data-tab-target="calibration">Calibration</button>
+    <button class="tab-button" type="button" data-tab-target="commands">TV Commands</button>
+    <button class="tab-button" type="button" data-tab-target="settings">Settings</button>
+    <button class="tab-button" type="button" data-tab-target="data">Data</button>
   </nav>
 
   <main>
@@ -80,7 +80,7 @@
       <div class="two-column">
         <div class="card" id="sessionReportCard">
           <div class="section-title compact-title">
-            <strong>Report sessione</strong>
+            <strong>Session Report</strong>
             <span class="section-note" id="sessionSummaryWindow">-</span>
           </div>
           <p class="report-text" id="sessionSummary">-</p>
@@ -89,8 +89,8 @@
 
         <div class="card insight-card">
           <div class="section-title compact-title">
-            <strong>Perche cambia il punteggio</strong>
-            <span class="section-note">Ultima lettura utile</span>
+            <strong>Why the score changed</strong>
+            <span class="section-note">Latest useful reading</span>
           </div>
           <p class="report-text" id="scoreReasonText">-</p>
           <div class="mini-metrics" id="latestReasonMetrics"></div>
@@ -100,28 +100,28 @@
       <div class="card chart-card">
         <div class="chart-header">
           <div>
-            <strong id="chartTitle">Punteggio sonno</strong>
+            <strong id="chartTitle">Sleep score</strong>
             <span class="chart-caption" id="chartCaption">-</span>
           </div>
-          <div class="segmented-control" role="group" aria-label="Tipo grafico">
-            <button class="segment-button" type="button" data-chart-mode="score">Punteggio</button>
-            <button class="segment-button" type="button" data-chart-mode="distance">Distanza</button>
+          <div class="segmented-control" role="group" aria-label="Chart type">
+            <button class="segment-button" type="button" data-chart-mode="score">Score</button>
+            <button class="segment-button" type="button" data-chart-mode="distance">Distance</button>
           </div>
         </div>
         <div class="chart-wrap">
-          <canvas class="chart" id="sleepChart" aria-label="Grafico sessione"></canvas>
+          <canvas class="chart" id="sleepChart" aria-label="Session chart"></canvas>
         </div>
         <div class="legend-row">
-          <span><i class="legend-dot accent"></i>Linea principale</span>
-          <span><i class="legend-dot soft"></i>Nel letto</span>
-          <span><i class="legend-dot bad"></i>Spegnimento TV</span>
+          <span><i class="legend-dot accent"></i>Main line</span>
+          <span><i class="legend-dot soft"></i>In bed</span>
+          <span><i class="legend-dot bad"></i>TV OFF</span>
         </div>
       </div>
     </section>
 
     <section class="tab-panel" data-tab-panel="session">
       <div class="section-title">
-        <strong>Sessione recente</strong>
+        <strong>Recent Session</strong>
         <span class="section-note" id="sessionWindow">-</span>
       </div>
       <div class="grid" id="sessionCards"></div>
@@ -131,23 +131,23 @@
       <div class="two-column calibration-layout">
         <div class="card wizard-card">
           <div class="section-title compact-title">
-            <strong>Wizard calibrazione</strong>
-            <span class="section-note">Guidato</span>
+            <strong>Calibration Wizard</strong>
+            <span class="section-note">Guided</span>
           </div>
-          <div class="wizard-step" id="calibrationStepTitle">Pronto</div>
-          <p class="report-text" id="calibrationStepDetail">Sdraiati nel letto, poi avvia una sessione guidata. Alla fine potrai applicare il range consigliato.</p>
+          <div class="wizard-step" id="calibrationStepTitle">Ready</div>
+          <p class="report-text" id="calibrationStepDetail">Lie in bed, then start a guided session. At the end you can apply the suggested range.</p>
           <div class="wizard-timer" id="calibrationTimer">--</div>
           <div class="button-row">
-            <button class="secondary-button" type="button" id="calibrationStartButton">Avvia</button>
-            <button class="secondary-button" type="button" id="calibrationNextButton" disabled>Passo successivo</button>
-            <button class="power-button" type="button" id="calibrationApplyButton" disabled>Applica range</button>
+            <button class="secondary-button" type="button" id="calibrationStartButton">Start</button>
+            <button class="secondary-button" type="button" id="calibrationNextButton" disabled>Next step</button>
+            <button class="power-button" type="button" id="calibrationApplyButton" disabled>Apply range</button>
           </div>
         </div>
 
         <div>
           <div class="section-title">
-            <strong>Calibrazione</strong>
-            <span class="section-note">Distanze filtrate rilevate nel letto</span>
+            <strong>Calibration</strong>
+            <span class="section-note">Filtered distances detected in bed</span>
           </div>
           <div class="grid compact-grid" id="calibrationCards"></div>
         </div>
@@ -158,10 +158,10 @@
       <div class="control-grid">
         <div class="card">
           <div class="section-title compact-title">
-            <strong>Telecomando</strong>
+            <strong>TV Remote</strong>
             <span class="section-note" id="remoteStatus">-</span>
           </div>
-          <button class="power-button main-power" type="button" id="powerTvButton">Spegni TV</button>
+          <button class="power-button main-power" type="button" id="powerTvButton">Turn TV off</button>
           <div class="button-row remote-tests">
             <button class="power-button" type="button" data-power-repeat="1">OFF x1</button>
             <button class="power-button" type="button" data-power-repeat="2">OFF x2</button>
@@ -171,30 +171,30 @@
 
         <div class="card">
           <div class="section-title compact-title">
-            <strong>BroadLink</strong>
+            <strong>Remote Backend</strong>
             <span class="section-note" id="broadlinkStatus">-</span>
           </div>
           <div class="metric-detail" id="broadlinkDetail">-</div>
           <div class="button-row remote-tests">
-            <button class="secondary-button" type="button" id="broadlinkLearnStartButton">Avvia apprendimento</button>
-            <button class="secondary-button" type="button" id="broadlinkLearnCheckButton">Salva codice OFF</button>
+            <button class="secondary-button" type="button" id="broadlinkLearnStartButton">Start learning</button>
+            <button class="secondary-button" type="button" id="broadlinkLearnCheckButton">Save OFF code</button>
           </div>
         </div>
 
         <div class="card">
           <div class="section-title compact-title">
-            <strong>Comandi manuali</strong>
-            <span class="section-note">ESP32 e BroadLink</span>
+            <strong>Manual Commands</strong>
+            <span class="section-note">ESP32 and remote backend</span>
           </div>
           <div class="table-scroll">
             <table>
               <thead>
                 <tr>
-                  <th>Ora</th>
-                  <th>Comando</th>
-                  <th>Stato</th>
-                  <th>Scadenza</th>
-                  <th>Azione</th>
+                  <th>Time</th>
+                  <th>Command</th>
+                  <th>Status</th>
+                  <th>Expires</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody id="commandRows"></tbody>
@@ -206,14 +206,14 @@
 
     <section class="tab-panel" data-tab-panel="settings">
       <div class="section-title">
-        <strong>Impostazioni</strong>
+        <strong>Settings</strong>
         <span class="section-note" id="settingsUpdated">-</span>
       </div>
 
       <div class="card mode-card">
         <div>
-          <strong>Spegnimento automatico</strong>
-          <p class="report-text">Quando e disattivato, l'ESP32 continua a registrare tutto ma non spegne la TV da solo.</p>
+          <strong>Automatic TV OFF</strong>
+          <p class="report-text">When disabled, the ESP32 keeps recording everything but does not turn the TV off by itself.</p>
         </div>
         <label class="toggle">
           <input id="autoModeToggle" type="checkbox">
@@ -224,82 +224,82 @@
 
       <form class="settings-form" id="settingsForm">
         <fieldset>
-          <legend>Quando spegnere</legend>
+          <legend>When to turn off</legend>
           <label>
-            <span>Soglia spegnimento</span>
+            <span>Sleep threshold</span>
             <input id="settingSleepThreshold" name="sleep_threshold" type="number" min="30" max="3600" step="10">
           </label>
           <label>
-            <span>Fuori letto tollerato</span>
+            <span>Out-of-bed tolerance</span>
             <input id="settingOutOfBedLimit" name="out_of_bed_limit" type="number" min="1" max="60" step="1">
           </label>
         </fieldset>
 
         <fieldset>
-          <legend>Dove si trova il letto</legend>
+          <legend>Where the bed is</legend>
           <label>
-            <span>Distanza min letto</span>
+            <span>Bed min distance</span>
             <input id="settingDistanceMin" name="distance_min_cm" type="number" min="20" max="400" step="1">
           </label>
           <label>
-            <span>Distanza max letto</span>
+            <span>Bed max distance</span>
             <input id="settingDistanceMax" name="distance_max_cm" type="number" min="30" max="600" step="1">
           </label>
         </fieldset>
 
         <fieldset>
-          <legend>Movimento</legend>
+          <legend>Movement</legend>
           <label>
-            <span>Cambio tranquillo</span>
+            <span>Quiet distance change</span>
             <input id="settingQuietDistance" name="distance_quiet_cm" type="number" min="1" max="120" step="1">
           </label>
           <label>
-            <span>Cambio forte</span>
+            <span>Strong distance change</span>
             <input id="settingStrongDistance" name="distance_strong_cm" type="number" min="5" max="200" step="1">
           </label>
         </fieldset>
 
         <fieldset>
-          <legend>Telecomando</legend>
+          <legend>Remote</legend>
           <label>
-            <span>Ripetizioni IR ESP32 backup</span>
+            <span>ESP32 IR backup repeats</span>
             <input id="settingIrRepeats" name="ir_repeats" type="number" min="0" max="5" step="1">
           </label>
           <label>
-            <span>Scadenza comandi</span>
+            <span>Command expiry</span>
             <input id="settingCommandTtl" name="command_ttl_seconds" type="number" min="15" max="900" step="15">
           </label>
         </fieldset>
 
         <div class="form-actions">
-          <button class="secondary-button" type="submit">Salva impostazioni</button>
+          <button class="secondary-button" type="submit">Save settings</button>
         </div>
       </form>
     </section>
 
     <section class="tab-panel" data-tab-panel="data">
       <div class="data-actions">
-        <a class="secondary-button" href="/api/export/readings.csv" download>CSV letture</a>
-        <a class="secondary-button" href="/api/export/events.csv" download>CSV eventi</a>
-        <a class="secondary-button" href="/api/export/commands.csv" download>CSV comandi</a>
-        <button class="danger-button" type="button" id="clearDataButton">Svuota letture</button>
+        <a class="secondary-button" href="/api/export/readings.csv" download>Readings CSV</a>
+        <a class="secondary-button" href="/api/export/events.csv" download>Events CSV</a>
+        <a class="secondary-button" href="/api/export/commands.csv" download>Commands CSV</a>
+        <button class="danger-button" type="button" id="clearDataButton">Clear readings</button>
       </div>
 
       <section class="dashboard-section">
         <div class="section-title">
-          <strong>Eventi recenti</strong>
-          <span class="section-note">Tentativi TV e altri eventi salvati</span>
+          <strong>Recent Events</strong>
+          <span class="section-note">TV attempts and other saved events</span>
         </div>
         <div class="card">
           <div class="table-scroll">
             <table>
               <thead>
                 <tr>
-                  <th>Ora</th>
-                  <th>Evento</th>
-                  <th>Punteggio</th>
-                  <th>Distanza</th>
-                  <th>Nota</th>
+                  <th>Time</th>
+                  <th>Event</th>
+                  <th>Score</th>
+                  <th>Distance</th>
+                  <th>Note</th>
                 </tr>
               </thead>
               <tbody id="eventRows"></tbody>
@@ -309,19 +309,19 @@
       </section>
 
       <div class="card">
-        <strong>Ultime letture</strong>
+        <strong>Latest Readings</strong>
         <div class="table-scroll">
           <table>
             <thead>
               <tr>
-                <th>Ora</th>
+                <th>Time</th>
                 <th>Radar</th>
-                <th>Letto</th>
-                <th>Stabile</th>
+                <th>Bed</th>
+                <th>Stable</th>
                 <th>Raw</th>
-                <th>Filtrata</th>
-                <th>Punteggio</th>
-                <th>Motivo</th>
+                <th>Filtered</th>
+                <th>Score</th>
+                <th>Reason</th>
                 <th>TV</th>
               </tr>
             </thead>

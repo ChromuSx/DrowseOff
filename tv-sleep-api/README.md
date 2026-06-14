@@ -1,238 +1,191 @@
 # TV Sleep API
 
-Servizio locale per il progetto TV Sleep. Salva su SQLite i dati inviati
-dall'ESP32, mostra la dashboard e comanda il BroadLink RM Mini3 per spegnere la
-TV.
+Local API and dashboard for TV Sleep Monitor. It receives ESP32 sensor readings,
+stores them in SQLite, renders the web dashboard, and can send a TV OFF command
+through a configurable remote backend.
 
-Questa cartella fa parte del progetto:
-
-```text
-D:\Documenti\Development\TvArduino\tv-sleep-api
-```
-
-Copiala sul mini PC/server prima di avviarla.
-
-## Struttura
+## Structure
 
 ```text
-app.py                  # entrypoint minimale
-tv_sleep/config.py      # percorsi e variabili ambiente
-tv_sleep/db.py          # SQLite e query
-tv_sleep/reports.py     # riepilogo sessione e serie grafico
-tv_sleep/broadlink_remote.py  # invio e apprendimento codici BroadLink
-tv_sleep/server.py      # HTTP server, routing API e static files
+app.py                         # minimal entrypoint
+tv_sleep/config.py             # paths and environment variables
+tv_sleep/db.py                 # SQLite schema and queries
+tv_sleep/reports.py            # session summaries and chart series
+tv_sleep/remote_control.py     # provider-neutral remote control facade
+tv_sleep/broadlink_remote.py   # BroadLink implementation
+tv_sleep/server.py             # HTTP server, API routing, static files
 templates/dashboard.html
 static/app.css
 static/app.js
 ```
 
-## Avvio sul mini PC
+## Configuration
 
-Sul tuo PC Windows, copia questa cartella sul server, per esempio con WinSCP oppure SCP:
-
-```powershell
-scp -P 2222 -r "D:\Documenti\Development\TvArduino\tv-sleep-api" giovanniguarino@192.168.1.196:/home/giovanniguarino/
-```
-
-Poi sul server:
+Create a local `.env` file from the example:
 
 ```bash
-cd ~/tv-sleep-api
+cp .env.example .env
+```
+
+Then adjust the values for your home network:
+
+```env
+TZ=UTC
+TV_SLEEP_PORT=8010
+TV_SLEEP_DB=/data/tv_sleep.db
+DEFAULT_SENSOR_DEVICE_ID=tv-sleep-sensor
+
+REMOTE_PROVIDER=broadlink
+REMOTE_AUTO_ENABLED=1
+BROADLINK_HOST=192.168.1.100
+BROADLINK_PACKET_PATH=/data/broadlink_tv_off.b64
+```
+
+Do not commit `.env`, database files, or learned IR packet files.
+
+## Docker Startup
+
+From this directory:
+
+```bash
 docker compose up -d --build
 ```
 
-Se il firewall blocca la porta:
+If your server firewall blocks the dashboard port, allow access from your local
+network. Example for UFW:
 
 ```bash
 sudo ufw allow from 192.168.1.0/24 to any port 8010 proto tcp
 ```
 
-## URL utili
-
-Dashboard:
+Open the dashboard at:
 
 ```text
-http://192.168.1.196:8010/
+http://YOUR_SERVER_IP:8010/
 ```
 
-Health check:
+## Main API Endpoints
 
 ```text
-http://192.168.1.196:8010/api/health
+GET  /api/health
+GET  /api/latest
+GET  /api/summary
+GET  /api/session
+GET  /api/session-summary
+GET  /api/sleep-series
+GET  /api/calibration
+GET  /api/settings
+POST /api/settings
+GET  /api/readings
+POST /api/readings
+GET  /api/events
+POST /api/events
+GET  /api/commands
+POST /api/commands
+POST /api/commands/cancel
+GET  /api/export/readings.csv
+GET  /api/export/events.csv
+GET  /api/export/commands.csv
 ```
 
-Ultima lettura:
+Legacy aliases are still available for compatibility:
 
 ```text
-http://192.168.1.196:8010/api/latest
+GET /api/night
+GET /api/morning-report
 ```
 
-Riepilogo sessione recente:
+## Remote Control API
+
+Provider-neutral endpoints:
 
 ```text
-http://192.168.1.196:8010/api/session
+GET  /api/remote/status
+GET  /api/remote/probe
+POST /api/remote/send-off
+POST /api/remote/learn/start
+POST /api/remote/learn/check
 ```
 
-Serie dati per il grafico:
+BroadLink-specific aliases are kept for compatibility:
 
 ```text
-http://192.168.1.196:8010/api/sleep-series
+GET  /api/broadlink/status
+GET  /api/broadlink/probe
+POST /api/broadlink/send-off
+POST /api/broadlink/learn/start
+POST /api/broadlink/learn/check
 ```
 
-Impostazioni modificabili dalla dashboard:
-
-```text
-http://192.168.1.196:8010/api/settings
-```
-
-Report sessione:
-
-```text
-http://192.168.1.196:8010/api/session-summary
-```
-
-Endpoint legacy ancora disponibili per compatibilita:
-
-```text
-http://192.168.1.196:8010/api/night
-http://192.168.1.196:8010/api/morning-report
-```
-
-Calibrazione distanze:
-
-```text
-http://192.168.1.196:8010/api/calibration
-```
-
-Export CSV letture:
-
-```text
-http://192.168.1.196:8010/api/export/readings.csv
-```
-
-Export CSV eventi:
-
-```text
-http://192.168.1.196:8010/api/export/events.csv
-```
-
-Comandi manuali recenti:
-
-```text
-http://192.168.1.196:8010/api/commands
-```
-
-Export CSV comandi:
-
-```text
-http://192.168.1.196:8010/api/export/commands.csv
-```
-
-Stato BroadLink:
-
-```text
-http://192.168.1.196:8010/api/broadlink/status
-```
-
-Probe BroadLink:
-
-```text
-http://192.168.1.196:8010/api/broadlink/probe
-```
-
-Inviare OFF via BroadLink:
+Send TV OFF through the configured remote provider:
 
 ```bash
-curl -X POST http://localhost:8010/api/broadlink/send-off \
+curl -X POST http://localhost:8010/api/remote/send-off \
   -H "Content-Type: application/json" \
-  -d '{"repeat_count":1,"source":"manuale"}'
+  -d '{"repeat_count":1,"source":"manual"}'
 ```
 
-Accodare un comando di spegnimento TV all'ESP32, solo fallback storico:
+Queue a TV OFF command for the ESP32 IR fallback:
 
 ```bash
 curl -X POST http://localhost:8010/api/commands \
   -H "Content-Type: application/json" \
-  -d '{"command_type":"tv_power","repeat_count":1,"device_id":"camera-tv-esp32","source":"dashboard"}'
+  -d '{"command_type":"tv_power","repeat_count":1,"source":"dashboard"}'
 ```
 
-Annullare un comando pendente:
+## ESP32 Firmware
 
-```bash
-curl -X POST http://localhost:8010/api/commands/cancel \
-  -H "Content-Type: application/json" \
-  -d '{"id":1}'
-```
-
-## Firmware ESP32
-
-Lo sketch legge periodicamente le impostazioni dal server:
+The firmware periodically reads device settings from:
 
 ```text
-http://192.168.1.196:8010/api/settings/device
+http://YOUR_SERVER_IP:8010/api/settings/device
 ```
 
-Le impostazioni includono anche:
+Important settings:
 
 ```text
-auto_power_enabled=1   # spegnimento automatico attivo
-auto_power_enabled=0   # solo monitoraggio, nessuno spegnimento automatico
-sleep_threshold=600    # circa 10 minuti di stabilita in condizioni tranquille
+auto_power_enabled=1   # automatic TV OFF enabled
+auto_power_enabled=0   # monitoring only
+sleep_threshold=600    # roughly 10 calm minutes with the default scoring
 ```
 
-La dashboard mostra questa modalita in alto e nel tab Impostazioni. I comandi
-manuali di spegnimento TV restano disponibili anche quando lo spegnimento
-automatico e disattivato.
+The dashboard exposes these settings in the Settings tab. Manual TV OFF commands
+remain available even when automatic TV OFF is disabled.
 
-Il punteggio sonno sale circa una volta al secondo quando il sensore vede una
-persona stabile nel letto. Movimenti forti lo fanno scendere e l'uscita dal
-letto lo azzera. La soglia `600` quindi equivale indicativamente a 10 minuti di
-stabilita, non a un timer rigido.
+The firmware also sends `score_reason`, a human-readable reason for score
+changes, such as `+1 stable and still` or `-8 strong movement`.
 
-Le nuove letture inviate dal firmware includono anche `score_reason`, cioe il
-motivo leggibile del cambio punteggio, per esempio `+1 stabile e fermo` oppure
-`-8 movimento forte`.
+Arduino OTA is enabled after the first USB upload. OTA availability depends on
+your network and Arduino IDE setup.
 
-Dopo il prossimo upload via USB, lo sketch abilita anche Arduino OTA. Nell'IDE
-Arduino dovrebbe comparire una porta di rete con hostname:
+## BroadLink Workflow
 
-```text
-camera-tv-esp32
-```
+Set these values in `.env`:
 
-Il primo upload con OTA abilitato va comunque fatto via USB. Dopo, quando
-l'ESP32 e il PC sono sulla stessa rete, puoi provare gli aggiornamenti via WiFi.
-
-## BroadLink
-
-Il BroadLink RM Mini3 e configurato in `docker-compose.yml`:
-
-```text
-BROADLINK_HOST=192.168.1.107
+```env
+REMOTE_PROVIDER=broadlink
+REMOTE_AUTO_ENABLED=1
+BROADLINK_HOST=192.168.1.100
 BROADLINK_PACKET_PATH=/data/broadlink_tv_off.b64
-BROADLINK_AUTO_ENABLED=1
 ```
 
-Il file `broadlink_tv_off.b64` contiene il codice IR OFF imparato dalla
-dashboard. Non va committato: resta nel volume `./data` insieme al database.
+Learning flow from the dashboard:
 
-Flusso di apprendimento dalla dashboard:
+1. Open the TV Commands tab.
+2. Press Start Learning.
+3. Send the TV OFF command toward the BroadLink device.
+4. Press Save OFF Code.
 
-1. Vai su `Comandi TV`.
-2. Premi `Avvia apprendimento`.
-3. Manda il comando OFF verso il BroadLink.
-4. Premi `Salva codice OFF`.
+When `packet_saved=true` and `ready=true`, the dashboard TV OFF button uses the
+remote provider. Automatic TV OFF also uses the remote provider when the ESP32
+reports that the sleep threshold has been reached.
 
-Quando `packet_saved=true` e `ready=true`, il bottone `Spegni TV` usa BroadLink.
-Anche lo spegnimento automatico usa BroadLink quando l'ESP32 invia l'evento di
-soglia raggiunta.
+## Home Assistant
 
-## Home Assistant / MQTT
-
-Per ora l'integrazione piu semplice con Home Assistant e un REST command verso:
+The simplest Home Assistant integration is a REST command:
 
 ```text
-POST http://192.168.1.196:8010/api/broadlink/send-off
+POST http://YOUR_SERVER_IP:8010/api/remote/send-off
 ```
 
 Payload:
@@ -241,11 +194,10 @@ Payload:
 {"repeat_count":1,"source":"home-assistant"}
 ```
 
-MQTT resta una buona evoluzione se vuoi portare altri sensori o automazioni sul
-mini PC: e leggero, bidirezionale e pensato per IoT. In questo progetto pero il
-polling HTTP attuale resta piu semplice da debuggare.
+MQTT is a useful future option for larger IoT setups, but the current HTTP flow
+is intentionally simple to debug.
 
-## Test manuale
+## Manual Test
 
 ```bash
 curl -X POST http://localhost:8010/api/readings \
@@ -255,7 +207,7 @@ curl -X POST http://localhost:8010/api/readings \
 
 ## Database
 
-Il database resta qui:
+The default Docker database path is:
 
 ```text
 ./data/tv_sleep.db

@@ -49,6 +49,7 @@ from .remote_control import (
     remote_start_learning,
     remote_status,
 )
+from .power_meter import power_meter_status, should_skip_tv_off
 from .reports import (
     get_calibration_report,
     get_session_report,
@@ -114,6 +115,28 @@ def try_send_remote_auto(payload):
         }
 
     try:
+        skip_tv_off, power_status = should_skip_tv_off()
+        if skip_tv_off:
+            event_id = insert_event(
+                {
+                    "device_id": payload.get("device_id") or "power-meter",
+                    "event_type": "tv_off_skipped_tv_already_off",
+                    "sleep_score": payload.get("sleep_score"),
+                    "dist_filtered": payload.get("dist_filtered"),
+                    "note": (
+                        "TV OFF skipped: power meter reports "
+                        f"{power_status.get('apower_w')} W below "
+                        f"{power_status.get('on_threshold_w')} W"
+                    ),
+                }
+            )
+            return {
+                "ok": True,
+                "status": "skipped_already_off",
+                "event_id": event_id,
+                "power_meter": power_status,
+            }
+
         result = remote_send_tv_off(1)
         event_id = insert_event(
             {
@@ -128,6 +151,7 @@ def try_send_remote_auto(payload):
             "ok": True,
             "status": "sent",
             "event_id": event_id,
+            "power_meter": power_status,
             **result,
         }
     except Exception as exc:
@@ -359,6 +383,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json(500, {"error": str(exc)})
             return
 
+        if parsed.path == "/api/power/status":
+            self.send_json(200, power_meter_status(use_cache=False))
+            return
+
         if parsed.path == "/api/export/readings.csv":
             self.send_csv(
                 "drowseoff-readings.csv",
@@ -487,6 +515,7 @@ class Handler(BaseHTTPRequestHandler):
 
                 try:
                     result = remote_send_tv_off(repeat_count)
+                    power_status = power_meter_status(use_cache=False)
                     complete_command(
                         command_id,
                         "done",
@@ -499,7 +528,15 @@ class Handler(BaseHTTPRequestHandler):
                             "note": f"Manual TV OFF sent by {result['provider']} x{result['repeat_count']}",
                         }
                     )
-                    self.send_json(200, {"ok": True, "id": command_id, **result})
+                    self.send_json(
+                        200,
+                        {
+                            "ok": True,
+                            "id": command_id,
+                            "power_meter": power_status,
+                            **result,
+                        },
+                    )
                 except Exception as exc:
                     complete_command(command_id, "failed", str(exc))
                     insert_event(

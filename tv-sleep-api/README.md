@@ -14,6 +14,7 @@ tv_sleep/config.py             # paths and environment variables
 tv_sleep/db.py                 # SQLite schema and queries
 tv_sleep/reports.py            # session summaries and chart series
 tv_sleep/remote_control.py     # provider-neutral remote control facade
+tv_sleep/power_meter.py        # optional TV wattage provider facade
 tv_sleep/broadlink_remote.py   # BroadLink implementation
 tv_sleep/server.py             # HTTP server, API routing, static files
 templates/dashboard.html
@@ -46,6 +47,12 @@ DROWSEOFF_REMOTE_AUTO_ENABLED=1
 BROADLINK_HOST=192.168.1.100
 BROADLINK_PACKET_PATH=/data/broadlink_tv_off.b64
 BROADLINK_STATUS_PROBE_INTERVAL=60
+
+DROWSEOFF_POWER_METER_PROVIDER=shelly
+SHELLY_HOST=192.168.1.120
+SHELLY_SWITCH_ID=0
+SHELLY_ON_THRESHOLD_W=30
+SHELLY_STATUS_CACHE_SECONDS=5
 ```
 
 Do not commit `.env`, database files, or learned IR packet files.
@@ -141,6 +148,7 @@ GET  /api/remote/probe
 POST /api/remote/send-off
 POST /api/remote/learn/start
 POST /api/remote/learn/check
+GET  /api/power/status
 ```
 
 Send TV OFF through the configured remote provider:
@@ -230,6 +238,24 @@ remote provider send is stored separately as `tv_off_remote_auto` or
 `tv_off_remote_manual`. A successful direct ESP32 automatic IR send is stored as
 `tv_off_esp32_auto`; a manual dashboard command completed by the ESP32 is stored
 as `tv_off_esp32_manual`. Remote failures are stored as `tv_off_remote_failed`.
+
+## Shelly Power Meter
+
+Set these values in `.env` to read TV wattage from a Shelly Plug S Gen3/MTR Gen3:
+
+```env
+DROWSEOFF_POWER_METER_PROVIDER=shelly
+SHELLY_HOST=192.168.1.120
+SHELLY_SWITCH_ID=0
+SHELLY_ON_THRESHOLD_W=30
+SHELLY_STATUS_CACHE_SECONDS=5
+```
+
+The Shelly output must stay on. DrowseOff uses the plug only as a meter, not as
+a hard power cut. `/api/power/status` returns the current watts and whether the
+TV is considered on. Automatic TV OFF is skipped when the meter is ready and the
+TV is already below `SHELLY_ON_THRESHOLD_W`; that event is stored as
+`tv_off_skipped_tv_already_off`.
 
 ## Home Assistant
 

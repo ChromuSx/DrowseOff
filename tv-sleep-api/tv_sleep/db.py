@@ -86,6 +86,7 @@ TV_OFF_SUCCESS_EVENT_TYPES = (
     "tv_off_remote_auto",
     "tv_off_remote_manual",
     "tv_off_esp32_auto",
+    "tv_off_skipped_tv_already_off",
 )
 
 

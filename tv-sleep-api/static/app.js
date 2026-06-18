@@ -81,7 +81,8 @@ const eventTypeLabel = (eventType) => {
     tv_off_remote_auto: 'TV OFF via remote',
     tv_off_remote_manual: 'Dashboard TV OFF via remote',
     tv_off_remote_failed: 'Remote TV OFF failed',
-    tv_off_esp32_auto: 'TV OFF via ESP32 IR'
+    tv_off_esp32_auto: 'TV OFF via ESP32 IR',
+    tv_off_skipped_tv_already_off: 'TV already off'
   };
   return labels[eventType] || eventType || '-';
 };
@@ -156,6 +157,7 @@ let latestSeries = [];
 let latestSession = {};
 let latestSettings = {};
 let latestRemote = {};
+let latestPower = {};
 let latestCalibration = {};
 let latestReadings = [];
 let latestOnline = false;
@@ -800,6 +802,34 @@ function renderRemoteStatus(status) {
   }
 }
 
+function renderPowerStatus(power) {
+  latestPower = power || {};
+  const detail = document.getElementById('componentPowerDetail');
+
+  if (!detail) return;
+
+  if (!latestPower.configured) {
+    detail.textContent = 'power meter not configured';
+    setPill('componentPowerState', 'none', 'neutral');
+    return;
+  }
+
+  if (!latestPower.ready) {
+    detail.textContent = latestPower.last_probe_error || 'power meter unreachable';
+    setPill('componentPowerState', 'down', 'bad');
+    return;
+  }
+
+  const watts = Number(latestPower.apower_w ?? 0).toFixed(1);
+  const threshold = Number(latestPower.on_threshold_w ?? 0).toFixed(0);
+  detail.textContent = `${latestPower.provider || 'meter'} ${latestPower.host} - ${watts} W, threshold ${threshold} W`;
+  setPill(
+    'componentPowerState',
+    latestPower.tv_on ? 'on' : 'off',
+    latestPower.tv_on ? 'warn' : 'ok'
+  );
+}
+
 function setPill(id, label, state = 'neutral') {
   const element = document.getElementById(id);
   if (!element) return;
@@ -820,6 +850,8 @@ function renderOperationsRail(summary, settings, remote, session) {
   const threshold = Number(session.threshold || settings.sleep_threshold || 0);
   const score = Number(session.max_sleep_score || summary.max_sleep_score || 0);
   const thresholdReached = threshold > 0 && score >= threshold;
+  const powerReady = Boolean(latestPower.ready);
+  const powerKnownDown = Boolean(latestPower.configured && !latestPower.ready);
 
   document.getElementById('componentSensorDetail').textContent = sensorDetail;
   document.getElementById('componentRemoteDetail').textContent = remote.host
@@ -850,6 +882,10 @@ function renderOperationsRail(summary, settings, remote, session) {
     alertBox.classList.add('bad');
     alertBox.innerHTML = '<strong>Sensor offline</strong><p>No recent ESP32 reading. Check power, Wi-Fi, or API token configuration.</p>';
     alertCount.textContent = '1 grouped';
+  } else if (powerKnownDown) {
+    alertBox.classList.add('bad');
+    alertBox.innerHTML = '<strong>Power meter unreachable</strong><p>The TV power meter is configured, but DrowseOff cannot read current wattage.</p>';
+    alertCount.textContent = '1 grouped';
   } else if ((remoteConfigured && !remoteConnected) || remoteKnownDown) {
     alertBox.classList.add('bad');
     alertBox.innerHTML = '<strong>Remote unreachable</strong><p>The remote host is configured, but the latest probe failed. TV OFF may fall back to ESP32 IR or fail.</p>';
@@ -863,7 +899,9 @@ function renderOperationsRail(summary, settings, remote, session) {
     alertBox.innerHTML = '<strong>Threshold without confirmation</strong><p>The score reached the threshold, but no confirmed TV OFF event is attached to this session.</p>';
     alertCount.textContent = '1 grouped';
   } else {
-    alertBox.innerHTML = '<strong>No active alerts</strong><p>Sensor, remote backend, and ingestion are operating normally.</p>';
+    alertBox.innerHTML = powerReady
+      ? '<strong>No active alerts</strong><p>Sensor, remote backend, TV power meter, and ingestion are operating normally.</p>'
+      : '<strong>No active alerts</strong><p>Sensor, remote backend, and ingestion are operating normally.</p>';
     alertCount.textContent = '0 grouped';
   }
 }
@@ -1305,10 +1343,11 @@ async function refresh() {
   const devices = await apiJson('/api/devices');
   renderDeviceFilter(devices);
 
-  const [summary, settings, remote, sessionSummary, calibration, session, series, events, commands, readings] = await Promise.all([
+  const [summary, settings, remote, power, sessionSummary, calibration, session, series, events, commands, readings] = await Promise.all([
     apiJson(apiUrl('/api/summary')),
     apiJson('/api/settings'),
     apiJson('/api/remote/status'),
+    apiJson('/api/power/status'),
     apiJson(apiUrl('/api/session-summary')),
     apiJson(apiUrl('/api/calibration')),
     apiJson(apiUrl('/api/session')),
@@ -1323,6 +1362,7 @@ async function refresh() {
 
   renderSettings(settings);
   renderRemoteStatus(remote);
+  renderPowerStatus(power);
   renderHero(summary, session, settings);
   renderSummaryCards(summary, session, settings);
   renderSessionSummary(sessionSummary);

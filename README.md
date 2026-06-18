@@ -150,6 +150,9 @@ The server reads local deployment settings from `tv-sleep-api/.env`. That file i
 | `BROADLINK_HOST` | BroadLink device IP or hostname. |
 | `BROADLINK_PACKET_PATH` | Saved learned TV OFF packet path. |
 | `BROADLINK_STATUS_PROBE_INTERVAL` | Remote status probe cache duration in seconds. |
+| `DROWSEOFF_POWER_METER_PROVIDER` | Optional power meter provider. Set to `shelly` for Shelly Plug S Gen3/MTR Gen3. |
+| `SHELLY_HOST` | Shelly Plug IP or hostname. |
+| `SHELLY_ON_THRESHOLD_W` | Wattage threshold used to decide whether the TV is on. |
 
 The firmware reads local Wi-Fi and server settings from `firmware/esp32_sleep_sensor/secrets.h`. That file is also ignored by Git.
 
@@ -188,6 +191,24 @@ POST /api/remote/learn/check
 ### ESP32 IR fallback
 
 The firmware still supports a direct ESP32 IR transmitter fallback. Keep `esp32_ir_auto_enabled=0` when using a remote hub such as BroadLink. Enable it only when a working IR transmitter is connected to the ESP32 and aimed at the TV.
+
+### Shelly power meter
+
+DrowseOff can read a Shelly Plug S Gen3/MTR Gen3 as an optional TV power meter.
+This does not cut power to the TV. It only reads wattage so the server can tell
+whether the TV is likely on or in standby.
+
+```env
+DROWSEOFF_POWER_METER_PROVIDER=shelly
+SHELLY_HOST=YOUR_SHELLY_IP
+SHELLY_SWITCH_ID=0
+SHELLY_ON_THRESHOLD_W=30
+```
+
+When the sleep threshold is reached, DrowseOff checks the power meter before
+sending an automatic remote OFF command. If the TV is already below the wattage
+threshold, it records `tv_off_skipped_tv_already_off` instead of sending another
+OFF command.
 
 ## API and Data
 

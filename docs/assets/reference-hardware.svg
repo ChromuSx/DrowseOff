@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="560" viewBox="0 0 1120 560" role="img" aria-labelledby="title desc">
+  <title id="title">DrowseOff reference hardware</title>
+  <desc id="desc">Reference hardware blocks: ESP32, LD2410C, enclosure, BroadLink remote hub, Shelly power meter, local server, and TV.</desc>
+  <defs>
+    <style>
+      .bg{fill:#f5f7fb}
+      .card{fill:#fff;stroke:#ccd5e3;stroke-width:2}
+      .soft{fill:#eef2f7}
+      .text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#18202c}
+      .muted{fill:#657184}
+      .mono{font-family:Consolas,Menlo,monospace}
+      .blue{fill:#2f65c8}
+      .green{fill:#16794f}
+      .orange{fill:#a96d12}
+    </style>
+  </defs>
+  <rect class="bg" width="1120" height="560"/>
+  <text class="text" x="44" y="54" font-size="30" font-weight="800">Reference hardware</text>
+  <text class="muted" x="44" y="84" font-size="16">A public-friendly view of the known working DrowseOff build.</text>
+
+  <rect class="card" x="44" y="132" width="235" height="310" rx="12"/>
+  <rect x="84" y="178" width="150" height="90" rx="8" fill="#1f2937"/>
+  <circle cx="114" cy="206" r="8" fill="#49c279"/>
+  <rect x="126" y="196" width="78" height="8" rx="2" fill="#9aa3b4"/>
+  <rect x="126" y="216" width="62" height="8" rx="2" fill="#9aa3b4"/>
+  <rect x="98" y="292" width="120" height="62" rx="8" fill="#eaf3ef" stroke="#8fbca7"/>
+  <circle class="green" cx="128" cy="323" r="13"/>
+  <text class="text" x="74" y="384" font-size="18" font-weight="800">Sensor box</text>
+  <text class="muted mono" x="74" y="412" font-size="13">ESP32 + LD2410C</text>
+
+  <rect class="card" x="320" y="132" width="210" height="310" rx="12"/>
+  <circle cx="425" cy="226" r="62" fill="#f7efe6" stroke="#d2aa75" stroke-width="3"/>
+  <circle class="orange" cx="425" cy="226" r="15"/>
+  <path d="M425 158 C475 176 491 226 465 268" fill="none" stroke="#d2aa75" stroke-width="5" stroke-linecap="round"/>
+  <text class="text" x="364" y="384" font-size="18" font-weight="800">Remote hub</text>
+  <text class="muted mono" x="364" y="412" font-size="13">BroadLink RM Mini</text>
+
+  <rect class="card" x="572" y="132" width="210" height="310" rx="12"/>
+  <rect x="638" y="178" width="78" height="132" rx="16" fill="#edf5ff" stroke="#9ab7d8" stroke-width="3"/>
+  <circle class="blue" cx="677" cy="244" r="22"/>
+  <rect x="648" y="332" width="58" height="18" rx="4" fill="#ccd5e3"/>
+  <text class="text" x="625" y="384" font-size="18" font-weight="800">Power meter</text>
+  <text class="muted mono" x="625" y="412" font-size="13">Shelly Plug</text>
+
+  <rect class="card" x="824" y="132" width="252" height="310" rx="12"/>
+  <rect x="872" y="180" width="112" height="68" rx="8" fill="#18202c"/>
+  <rect x="898" y="250" width="58" height="8" fill="#657184"/>
+  <rect x="1004" y="190" width="34" height="102" rx="5" fill="#e3e9f2" stroke="#aebace"/>
+  <circle class="blue" cx="1021" cy="214" r="6"/>
+  <circle class="green" cx="1021" cy="236" r="6"/>
+  <text class="text" x="872" y="384" font-size="18" font-weight="800">Local system</text>
+  <text class="muted mono" x="872" y="412" font-size="13">TV + Docker server</text>
+
+  <rect x="70" y="472" width="980" height="42" rx="8" class="soft" stroke="#d5deeb"/>
+  <text class="muted" x="92" y="499" font-size="14">Use real build photos when available. Keep them generic: no private room details, Wi-Fi labels, serial numbers, or API tokens.</text>
+</svg>

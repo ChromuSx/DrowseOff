@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="620" viewBox="0 0 1120 620" role="img" aria-labelledby="title desc">
+  <title id="title">DrowseOff sensor placement guide</title>
+  <desc id="desc">Top-down placement guide showing the LD2410C sensor aimed across the bed, with the valid detection range focused on the sleeping position and away from common room traffic.</desc>
+  <defs>
+    <style>
+      .bg{fill:#f5f7fb}
+      .room{fill:#fff;stroke:#ccd5e3;stroke-width:3}
+      .bed{fill:#e9eef8;stroke:#9fb2d5;stroke-width:3}
+      .pillow{fill:#fff;stroke:#ccd5e3;stroke-width:2}
+      .zone{fill:#2f65c8;opacity:.14;stroke:#2f65c8;stroke-width:3}
+      .avoid{fill:#bf352d;opacity:.10;stroke:#bf352d;stroke-width:2;stroke-dasharray:8 8}
+      .text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#18202c}
+      .muted{fill:#657184}
+      .mono{font-family:Consolas,Menlo,monospace}
+      .line{fill:none;stroke:#566174;stroke-width:3;stroke-linecap:round}
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#566174"/>
+    </marker>
+  </defs>
+  <rect class="bg" width="1120" height="620"/>
+  <text class="text" x="44" y="54" font-size="30" font-weight="800">Sensor placement</text>
+  <text class="muted" x="44" y="84" font-size="16">Aim at the sleeping area, then tune the bed distance range from the dashboard.</text>
+
+  <rect class="room" x="106" y="126" width="908" height="408" rx="16"/>
+  <rect class="bed" x="250" y="186" width="390" height="268" rx="18"/>
+  <rect class="pillow" x="282" y="216" width="144" height="70" rx="14"/>
+  <rect class="pillow" x="462" y="216" width="144" height="70" rx="14"/>
+  <text class="muted mono" x="386" y="335" font-size="17">bed / target range</text>
+
+  <path class="zone" d="M704 320 L322 208 Q260 320 322 452 Z"/>
+  <rect class="avoid" x="696" y="154" width="222" height="120" rx="14"/>
+  <rect class="avoid" x="696" y="386" width="222" height="112" rx="14"/>
+  <text class="muted" x="728" y="210" font-size="15">door / walking path</text>
+  <text class="muted" x="728" y="446" font-size="15">desk / reflections</text>
+
+  <rect x="674" y="294" width="90" height="52" rx="9" fill="#18202c"/>
+  <circle cx="704" cy="320" r="10" fill="#49c279"/>
+  <text class="text" x="782" y="318" font-size="17" font-weight="800">sensor box</text>
+  <text class="muted mono" x="782" y="342" font-size="13">LD2410C front faces bed</text>
+
+  <path class="line" d="M704 320 C624 286 532 260 428 250" marker-end="url(#arrow)"/>
+  <text class="text" x="468" y="244" font-size="15" font-weight="800">aim at torso area</text>
+
+  <rect x="126" y="554" width="868" height="42" rx="8" fill="#eef2f7" stroke="#d5deeb"/>
+  <text class="muted" x="150" y="581" font-size="14">Start narrow: set min/max distance around the real bed position. Expand only if the dashboard shows missed in-bed samples.</text>
+</svg>

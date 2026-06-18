@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="620" viewBox="0 0 1120 620" role="img" aria-labelledby="title desc">
+  <title id="title">LD2410C to ESP32 wiring</title>
+  <desc id="desc">Reference wiring from LD2410C sensor pins to ESP32 pins: VCC to VIN or 5V, GND to GND, TX to GPIO16, RX to GPIO17, and optional OUT to GPIO27.</desc>
+  <defs>
+    <style>
+      .bg{fill:#f5f7fb}
+      .board{fill:#18202c;stroke:#303a4d;stroke-width:3}
+      .module{fill:#fff;stroke:#ccd5e3;stroke-width:2}
+      .pin{fill:#eef2f7;stroke:#9aa8bc;stroke-width:1.5}
+      .text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#18202c}
+      .light{fill:#e6e9ef}
+      .muted{fill:#657184}
+      .mono{font-family:Consolas,Menlo,monospace}
+      .red{stroke:#bf352d}
+      .black{stroke:#303a4d}
+      .green{stroke:#16794f}
+      .blue{stroke:#2f65c8}
+      .orange{stroke:#a96d12}
+      .wire{fill:none;stroke-width:5;stroke-linecap:round;stroke-linejoin:round}
+    </style>
+  </defs>
+  <rect class="bg" width="1120" height="620"/>
+  <text class="text" x="44" y="54" font-size="30" font-weight="800">ESP32 + LD2410C wiring</text>
+  <text class="muted" x="44" y="84" font-size="16">Main sensor build. Direct IR is optional and documented separately.</text>
+
+  <rect class="board" x="88" y="146" width="340" height="370" rx="18"/>
+  <text class="light" x="210" y="184" font-size="24" font-weight="800">ESP32 DevKit</text>
+  <rect x="214" y="218" width="88" height="48" rx="6" fill="#0f1115" stroke="#566174"/>
+  <text class="muted mono" x="226" y="247" font-size="13">USB</text>
+
+  <g font-family="Consolas,Menlo,monospace" font-size="14" fill="#e6e9ef">
+    <rect class="pin" x="112" y="304" width="68" height="28" rx="4"/><text x="126" y="324" fill="#18202c">VIN</text>
+    <rect class="pin" x="112" y="352" width="68" height="28" rx="4"/><text x="126" y="372" fill="#18202c">GND</text>
+    <rect class="pin" x="336" y="304" width="68" height="28" rx="4"/><text x="350" y="324" fill="#18202c">G16</text>
+    <rect class="pin" x="336" y="352" width="68" height="28" rx="4"/><text x="350" y="372" fill="#18202c">G17</text>
+    <rect class="pin" x="336" y="400" width="68" height="28" rx="4"/><text x="350" y="420" fill="#18202c">G27</text>
+  </g>
+
+  <rect class="module" x="704" y="170" width="270" height="322" rx="14"/>
+  <rect x="760" y="220" width="154" height="88" rx="10" fill="#eaf3ef" stroke="#8fbca7" stroke-width="2"/>
+  <circle cx="808" cy="264" r="18" fill="#16794f"/>
+  <text class="text" x="770" y="350" font-size="22" font-weight="800">LD2410C</text>
+  <text class="muted mono" x="770" y="378" font-size="14">mmWave presence sensor</text>
+
+  <g font-family="Consolas,Menlo,monospace" font-size="14" fill="#18202c">
+    <rect class="pin" x="704" y="216" width="70" height="28" rx="4"/><text x="718" y="236">VCC</text>
+    <rect class="pin" x="704" y="264" width="70" height="28" rx="4"/><text x="718" y="284">GND</text>
+    <rect class="pin" x="704" y="312" width="70" height="28" rx="4"/><text x="724" y="332">TX</text>
+    <rect class="pin" x="704" y="360" width="70" height="28" rx="4"/><text x="724" y="380">RX</text>
+    <rect class="pin" x="704" y="408" width="70" height="28" rx="4"/><text x="720" y="428">OUT</text>
+  </g>
+
+  <path class="wire red" d="M180 318 C330 290 550 220 704 230"/>
+  <path class="wire black" d="M180 366 C330 366 544 282 704 278"/>
+  <path class="wire blue" d="M404 318 C510 318 608 326 704 326"/>
+  <path class="wire green" d="M404 366 C512 380 606 374 704 374"/>
+  <path class="wire orange" d="M404 414 C520 456 612 430 704 422"/>
+
+  <g class="mono" font-size="15">
+    <text class="text" x="500" y="214">VCC -> VIN / 5V</text>
+    <text class="text" x="500" y="270">GND -> GND</text>
+    <text class="text" x="500" y="326">TX -> GPIO16</text>
+    <text class="text" x="500" y="382">RX -> GPIO17</text>
+    <text class="text" x="500" y="438">OUT -> GPIO27 optional</text>
+  </g>
+
+  <rect x="88" y="548" width="884" height="44" rx="8" fill="#eef2f7" stroke="#d5deeb"/>
+  <text class="muted" x="112" y="576" font-size="14">Use female-to-female jumper wires for header pins. Power the ESP32 from USB-C or micro-USB; do not expose bare conductors.</text>
+</svg>

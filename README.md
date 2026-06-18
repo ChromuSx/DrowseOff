@@ -25,6 +25,7 @@
 
 <p align="center">
   <a href="#features">Features</a> |
+  <a href="#hardware-at-a-glance">Hardware</a> |
   <a href="#how-it-works">How It Works</a> |
   <a href="#quick-start">Quick Start</a> |
   <a href="#configuration">Configuration</a> |
@@ -50,20 +51,36 @@
 
 The ESP32 does not need to be close to the TV. Its main job is to measure the person near the bed and report readings over Wi-Fi. The actual TV OFF command can be handled by a remote hub placed near the TV, which is usually more reliable than a weak IR LED across the room.
 
+## Hardware At A Glance
+
+![DrowseOff reference hardware](docs/assets/reference-hardware.svg)
+
+The recommended public build is:
+
+| Area | Recommended hardware | Why |
+| --- | --- | --- |
+| Bedside sensor | ESP32 DevKit + LD2410C | Measures presence, stillness, distance, and sleep score near the bed. |
+| Local backend | Docker-capable mini PC, NAS, Raspberry Pi, or desktop | Stores readings locally, renders the dashboard, and sends remote commands. |
+| TV control | BroadLink RM Mini class IR hub near the TV | More reliable than a weak IR LED pointed across the room. |
+| TV verification | Shelly Plug S Gen3/MTR Gen3 or compatible power meter | Confirms whether the TV is actually on or in standby after OFF. |
+
+See the full [Hardware Guide](docs/hardware.md) for the bill of materials,
+wiring table, placement guide, build profiles, and public photo policy.
+
 ## How It Works
 
-```text
-LD2410C + ESP32 near the bed
-  -> Wi-Fi readings with presence, distance, movement, and sleep score
-  -> DrowseOff API and SQLite database on your local server
-  -> web dashboard for monitoring, settings, and manual commands
-  -> remote-control backend near the TV
-  -> TV OFF command
-```
+![DrowseOff system overview](docs/assets/system-overview.svg)
+
+1. The ESP32 reads the LD2410C radar sensor near the bed.
+2. The firmware posts presence, distance, movement, stillness, and sleep-score readings over Wi-Fi.
+3. The local API stores readings in SQLite and renders the dashboard.
+4. When the sleep threshold is reached, DrowseOff sends TV OFF through the configured remote backend.
+5. If a power meter is configured, DrowseOff verifies whether the TV actually dropped into standby.
 
 ## Project Structure
 
 ```text
+docs/                            Hardware guide and documentation diagrams
 firmware/esp32_sleep_sensor/   ESP32 Arduino firmware
 tv-sleep-api/                  Python API, dashboard, remote backends, SQLite storage
 tv-sleep-api/static/brand/     DrowseOff logo and app icons

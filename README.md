@@ -153,6 +153,8 @@ The server reads local deployment settings from `tv-sleep-api/.env`. That file i
 | `DROWSEOFF_POWER_METER_PROVIDER` | Optional power meter provider. Set to `shelly` for Shelly Plug S Gen3/MTR Gen3. |
 | `SHELLY_HOST` | Shelly Plug IP or hostname. |
 | `SHELLY_ON_THRESHOLD_W` | Wattage threshold used to decide whether the TV is on. |
+| `DROWSEOFF_POWER_SAMPLE_SECONDS` | Background wattage sampling interval. Defaults to `60`. |
+| `DROWSEOFF_POWER_CONFIRM_DELAY_SECONDS` | Delay before checking whether a TV OFF command really reached standby. Defaults to `20`. |
 
 The firmware reads local Wi-Fi and server settings from `firmware/esp32_sleep_sensor/secrets.h`. That file is also ignored by Git.
 
@@ -203,12 +205,23 @@ DROWSEOFF_POWER_METER_PROVIDER=shelly
 SHELLY_HOST=YOUR_SHELLY_IP
 SHELLY_SWITCH_ID=0
 SHELLY_ON_THRESHOLD_W=30
+DROWSEOFF_POWER_SAMPLE_SECONDS=60
+DROWSEOFF_POWER_CONFIRM_DELAY_SECONDS=20
 ```
 
 When the sleep threshold is reached, DrowseOff checks the power meter before
 sending an automatic remote OFF command. If the TV is already below the wattage
 threshold, it records `tv_off_skipped_tv_already_off` instead of sending another
 OFF command.
+
+When a remote OFF command is sent, DrowseOff checks the power meter again after
+`DROWSEOFF_POWER_CONFIRM_DELAY_SECONDS`. It records `tv_off_power_confirmed`
+when the TV drops below the threshold, or `tv_off_power_still_on` when wattage
+still looks like the TV is on. The dashboard surfaces that as an active alert.
+
+The backend also stores periodic power samples. Session reports can estimate TV
+on time, standby wattage, power used during a session, and how long the TV stayed
+on after sleep was detected.
 
 ## API and Data
 
@@ -220,6 +233,7 @@ Main data exports:
 GET /api/export/readings.csv
 GET /api/export/events.csv
 GET /api/export/commands.csv
+GET /api/export/power-readings.csv
 ```
 
 See [`tv-sleep-api/README.md`](tv-sleep-api/README.md) for full API endpoints, Docker notes, Home Assistant examples, and manual curl tests.

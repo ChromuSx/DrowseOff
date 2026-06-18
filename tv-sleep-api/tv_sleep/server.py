@@ -21,6 +21,7 @@ from .config import (
 from .db import (
     COMMAND_COLUMNS,
     EVENT_COLUMNS,
+    POWER_READING_COLUMNS,
     READING_COLUMNS,
     clear_all_data,
     cancel_command,
@@ -34,6 +35,8 @@ from .db import (
     get_events,
     get_events_for_export,
     get_latest,
+    get_power_readings,
+    get_power_readings_for_export,
     get_readings,
     get_readings_for_export,
     get_settings,
@@ -49,7 +52,12 @@ from .remote_control import (
     remote_start_learning,
     remote_status,
 )
-from .power_meter import power_meter_status, should_skip_tv_off
+from .power_meter import power_meter_status
+from .power_monitor import (
+    record_power_status,
+    schedule_tv_off_confirmation,
+    start_power_sampler,
+)
 from .reports import (
     get_calibration_report,
     get_session_report,
@@ -115,7 +123,8 @@ def try_send_remote_auto(payload):
         }
 
     try:
-        skip_tv_off, power_status = should_skip_tv_off()
+        power_status = record_power_status(source="pre_auto", use_cache=False)
+        skip_tv_off = power_status.get("ready") and power_status.get("tv_on") is False
         if skip_tv_off:
             event_id = insert_event(
                 {
@@ -138,20 +147,27 @@ def try_send_remote_auto(payload):
             }
 
         result = remote_send_tv_off(1)
+        device_id = payload.get("device_id") or f"remote-{result['provider']}"
         event_id = insert_event(
             {
-                "device_id": payload.get("device_id") or f"remote-{result['provider']}",
+                "device_id": device_id,
                 "event_type": "tv_off_remote_auto",
                 "sleep_score": payload.get("sleep_score"),
                 "dist_filtered": payload.get("dist_filtered"),
                 "note": f"TV OFF sent by {result['provider']} x{result['repeat_count']}",
             }
         )
+        confirmation_scheduled = schedule_tv_off_confirmation(
+            payload,
+            device_id=device_id,
+            source="remote_auto",
+        )
         return {
             "ok": True,
             "status": "sent",
             "event_id": event_id,
             "power_meter": power_status,
+            "power_confirmation_scheduled": confirmation_scheduled,
             **result,
         }
     except Exception as exc:
@@ -387,6 +403,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, power_meter_status(use_cache=False))
             return
 
+        if parsed.path == "/api/power/readings":
+            limit = limited_query_param(parsed.query, "limit", 200, 2000)
+            self.send_json(200, get_power_readings(limit))
+            return
+
         if parsed.path == "/api/export/readings.csv":
             self.send_csv(
                 "drowseoff-readings.csv",
@@ -408,6 +429,14 @@ class Handler(BaseHTTPRequestHandler):
                 "drowseoff-commands.csv",
                 get_commands_for_export(query_device_id(parsed.query)),
                 COMMAND_COLUMNS,
+            )
+            return
+
+        if parsed.path == "/api/export/power-readings.csv":
+            self.send_csv(
+                "drowseoff-power-readings.csv",
+                get_power_readings_for_export(),
+                POWER_READING_COLUMNS,
             )
             return
 
@@ -515,7 +544,11 @@ class Handler(BaseHTTPRequestHandler):
 
                 try:
                     result = remote_send_tv_off(repeat_count)
-                    power_status = power_meter_status(use_cache=False)
+                    power_status = record_power_status(
+                        source="manual_send",
+                        note="Manual TV OFF command sent",
+                        use_cache=False,
+                    )
                     complete_command(
                         command_id,
                         "done",
@@ -528,12 +561,18 @@ class Handler(BaseHTTPRequestHandler):
                             "note": f"Manual TV OFF sent by {result['provider']} x{result['repeat_count']}",
                         }
                     )
+                    confirmation_scheduled = schedule_tv_off_confirmation(
+                        payload,
+                        device_id=device_id,
+                        source="remote_manual",
+                    )
                     self.send_json(
                         200,
                         {
                             "ok": True,
                             "id": command_id,
                             "power_meter": power_status,
+                            "power_confirmation_scheduled": confirmation_scheduled,
                             **result,
                         },
                     )
@@ -615,6 +654,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def run():
     ensure_db()
+    start_power_sampler()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     print(f"DrowseOff API listening on http://{HOST}:{PORT}")
     try:

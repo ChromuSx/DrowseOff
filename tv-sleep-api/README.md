@@ -129,9 +129,12 @@ POST /api/events
 GET  /api/commands
 POST /api/commands
 POST /api/commands/cancel
+GET  /api/power/status
+GET  /api/power/readings
 GET  /api/export/readings.csv
 GET  /api/export/events.csv
 GET  /api/export/commands.csv
+GET  /api/export/power-readings.csv
 ```
 
 Most read endpoints accept an optional `device_id` query parameter, for example
@@ -149,6 +152,7 @@ POST /api/remote/send-off
 POST /api/remote/learn/start
 POST /api/remote/learn/check
 GET  /api/power/status
+GET  /api/power/readings
 ```
 
 Send TV OFF through the configured remote provider:
@@ -239,6 +243,12 @@ remote provider send is stored separately as `tv_off_remote_auto` or
 `tv_off_esp32_auto`; a manual dashboard command completed by the ESP32 is stored
 as `tv_off_esp32_manual`. Remote failures are stored as `tv_off_remote_failed`.
 
+When a power meter is configured, DrowseOff also verifies remote OFF commands
+after a short delay. A confirmed drop below the wattage threshold is stored as
+`tv_off_power_confirmed`; a still-on reading is stored as
+`tv_off_power_still_on`; an unreachable meter during confirmation is stored as
+`tv_off_power_unknown`.
+
 ## Shelly Power Meter
 
 Set these values in `.env` to read TV wattage from a Shelly Plug S Gen3/MTR Gen3:
@@ -249,6 +259,8 @@ SHELLY_HOST=192.168.1.120
 SHELLY_SWITCH_ID=0
 SHELLY_ON_THRESHOLD_W=30
 SHELLY_STATUS_CACHE_SECONDS=5
+DROWSEOFF_POWER_SAMPLE_SECONDS=60
+DROWSEOFF_POWER_CONFIRM_DELAY_SECONDS=20
 ```
 
 The Shelly output must stay on. DrowseOff uses the plug only as a meter, not as
@@ -256,6 +268,15 @@ a hard power cut. `/api/power/status` returns the current watts and whether the
 TV is considered on. Automatic TV OFF is skipped when the meter is ready and the
 TV is already below `SHELLY_ON_THRESHOLD_W`; that event is stored as
 `tv_off_skipped_tv_already_off`.
+
+The server stores power samples in `power_readings` every
+`DROWSEOFF_POWER_SAMPLE_SECONDS`. These rows drive session estimates such as TV
+on time, standby wattage, energy used, and how long the TV stayed on after the
+sleep threshold was reached. Export them with:
+
+```text
+GET /api/export/power-readings.csv
+```
 
 ## Home Assistant
 

@@ -64,6 +64,18 @@ const formatDuration = (seconds) => {
   return restMinutes ? `${hours}h ${restMinutes}m` : `${hours}h`;
 };
 
+const formatWatts = (value) => {
+  if (value === null || value === undefined || value === '') return '-';
+  const number = Number(value);
+  return Number.isFinite(number) ? `${number.toFixed(1)} W` : '-';
+};
+
+const formatWattHours = (value) => {
+  if (value === null || value === undefined || value === '') return '-';
+  const number = Number(value);
+  return Number.isFinite(number) ? `${number.toFixed(2)} Wh` : '-';
+};
+
 const formatRemaining = (value) => {
   if (!value) return '-';
   const date = new Date(value);
@@ -82,7 +94,10 @@ const eventTypeLabel = (eventType) => {
     tv_off_remote_manual: 'Dashboard TV OFF via remote',
     tv_off_remote_failed: 'Remote TV OFF failed',
     tv_off_esp32_auto: 'TV OFF via ESP32 IR',
-    tv_off_skipped_tv_already_off: 'TV already off'
+    tv_off_skipped_tv_already_off: 'TV already off',
+    tv_off_power_confirmed: 'TV OFF power confirmed',
+    tv_off_power_still_on: 'TV still on after OFF',
+    tv_off_power_unknown: 'TV OFF power unknown'
   };
   return labels[eventType] || eventType || '-';
 };
@@ -160,6 +175,7 @@ let latestRemote = {};
 let latestPower = {};
 let latestCalibration = {};
 let latestReadings = [];
+let latestPowerReadings = [];
 let latestOnline = false;
 let chartMode = 'score';
 let selectedDeviceId = localStorage.getItem(DEVICE_STORAGE_KEY) || 'all';
@@ -606,7 +622,7 @@ async function clearData() {
     }
 
     await refresh();
-    setStatus(`Clear complete: ${result.readings_deleted} readings, ${result.events_deleted} events, and ${result.commands_deleted} commands deleted.`);
+    setStatus(`Clear complete: ${result.readings_deleted} readings, ${result.events_deleted} events, ${result.commands_deleted} commands, and ${result.power_readings_deleted || 0} power readings deleted.`);
   } catch (error) {
     setStatus(`Clear error: ${error.message}`);
   } finally {
@@ -628,6 +644,8 @@ function renderHero(summary, session, settings) {
   const threshold = Number(session.threshold || settings.sleep_threshold || 0);
   const score = Number(session.max_sleep_score || summary.max_sleep_score || 0);
   const powerEvent = session.session_power_event;
+  const verifiedPowerEvent = session.session_verified_power_event;
+  const powerFailureEvent = session.session_power_failure_event;
   const autoOn = Number(settings.auto_power_enabled ?? 1) === 1;
   const progress = threshold > 0 ? Math.min(100, Math.round((score / threshold) * 100)) : 0;
 
@@ -645,11 +663,23 @@ function renderHero(summary, session, settings) {
     title.className = 'neutral';
     title.textContent = 'Waiting';
     detail.textContent = 'No readable session yet.';
-  } else if (powerEvent) {
+  } else if (powerFailureEvent) {
+    badge.className = 'status-pill bad';
+    badge.textContent = 'Alert';
+    title.className = 'bad';
+    title.textContent = 'TV still on';
+    detail.textContent = powerFailureEvent.note || 'TV OFF was sent, but the power meter did not confirm standby.';
+  } else if (verifiedPowerEvent) {
     badge.className = 'status-pill ok';
     badge.textContent = 'Confirmed';
     title.className = 'ok';
     title.textContent = 'TV OFF confirmed';
+    detail.textContent = `Verified at ${formatClock(verifiedPowerEvent.ts)} by the power meter.`;
+  } else if (powerEvent) {
+    badge.className = 'status-pill ok';
+    badge.textContent = 'Sent';
+    title.className = 'ok';
+    title.textContent = 'TV OFF sent';
     detail.textContent = `Sent at ${formatClock(powerEvent.ts)} with score ${powerEvent.sleep_score ?? '-'}.`;
   } else if (score >= threshold && threshold > 0 && !autoOn) {
     badge.className = 'status-pill warn';
@@ -685,6 +715,9 @@ function renderSummaryCards(summary, session, settings) {
     metricCard('Latest reading', formatTime(summary.last_ts), latestOnline ? 'ESP32 online' : 'ESP32 offline'),
     metricCard('Max score', session.max_sleep_score || summary.max_sleep_score || 0, `Threshold ${session.threshold || settings.sleep_threshold || '-'}`),
     metricCard('TV commands', summary.tv_commands || 0, 'Successful events'),
+    metricCard('TV power', formatWatts(latestPower.apower_w), latestPower.ready ? `State ${latestPower.state || '-'}` : 'Power meter unavailable'),
+    metricCard('Average on', formatWatts(summary.avg_tv_on_power_w), `${summary.power_samples || 0} power samples`),
+    metricCard('Standby avg', formatWatts(summary.avg_standby_power_w), 'Measured below TV-on threshold'),
     metricCard('Pending commands', summary.pending_commands || 0, 'Expire automatically'),
     metricCard('Mode', Number(settings.auto_power_enabled ?? 1) === 1 ? 'Auto' : 'Monitor', 'Config read by ESP32')
   ].join('');
@@ -693,9 +726,15 @@ function renderSummaryCards(summary, session, settings) {
 function renderSessionCards(session) {
   latestSession = session || {};
   const powerEvent = latestSession.session_power_event;
+  const verifiedPowerEvent = latestSession.session_verified_power_event;
+  const powerFailureEvent = latestSession.session_power_failure_event;
+  const power = latestSession.power || {};
   const powerDetail = powerEvent
     ? `Score ${powerEvent.sleep_score ?? '-'}`
     : 'No event recorded';
+  const offAfterSleep = power.tv_off_after_sleep_at
+    ? `Standby at ${formatClock(power.tv_off_after_sleep_at)}`
+    : (power.sleep_detected_at ? 'No standby sample yet' : 'No sleep threshold event');
 
   document.getElementById('sessionWindow').textContent =
     `${formatShortTime(latestSession.window_start)} - ${formatShortTime(latestSession.window_end)}`;
@@ -706,6 +745,11 @@ function renderSessionCards(session) {
     metricCard('Stable time', formatDuration(latestSession.stable_seconds), `${latestSession.out_of_bed_readings || 0} out-of-bed readings`),
     metricCard('Max score', latestSession.max_sleep_score || 0, `Threshold ${latestSession.threshold ?? '-'}`),
     metricCard('Session TV OFF', powerEvent ? formatTime(powerEvent.ts) : 'Never', powerDetail),
+    metricCard('Power check', powerFailureEvent ? 'Failed' : (verifiedPowerEvent ? 'Verified' : 'Pending'), powerFailureEvent?.note || verifiedPowerEvent?.note || 'No verified power event yet'),
+    metricCard('TV on time', formatDuration(power.tv_on_seconds), `${power.samples || 0} power samples`),
+    metricCard('Energy', formatWattHours(power.energy_wh), `Last ${formatWatts(power.last_power_w)}`),
+    metricCard('After sleep', formatDuration(power.tv_on_after_sleep_seconds), offAfterSleep),
+    metricCard('Power averages', formatWatts(power.avg_tv_on_power_w), `Standby ${formatWatts(power.avg_standby_power_w)}`),
     metricCard('Firmware mode', latestSession.mode || '-', 'From latest ESP32 reading')
   ].join('');
 }
@@ -718,7 +762,10 @@ function renderSessionSummary(report) {
     ['In bed', formatDuration(report.in_bed_seconds)],
     ['Stable', formatDuration(report.stable_seconds)],
     ['Max score', report.max_sleep_score ?? 0],
-    ['TV commands', report.tv_commands ?? 0]
+    ['TV commands', report.tv_commands ?? 0],
+    ['TV on', formatDuration(report.power?.tv_on_seconds)],
+    ['Energy', formatWattHours(report.power?.energy_wh)],
+    ['After sleep', formatDuration(report.power?.tv_on_after_sleep_seconds)]
   ].map(([label, value]) => `
     <div class="mini-metric">
       <span>${safe(label)}</span>
@@ -847,6 +894,7 @@ function renderOperationsRail(summary, settings, remote, session) {
   const remoteConnected = remote.connected === true;
   const remoteKnownDown = Boolean(remote.host && remote.connected === false && remote.last_probe_error);
   const powerEvent = session.session_power_event;
+  const powerFailureEvent = session.session_power_failure_event;
   const threshold = Number(session.threshold || settings.sleep_threshold || 0);
   const score = Number(session.max_sleep_score || summary.max_sleep_score || 0);
   const thresholdReached = threshold > 0 && score >= threshold;
@@ -878,7 +926,11 @@ function renderOperationsRail(summary, settings, remote, session) {
   const alertCount = document.getElementById('alertCountLabel');
   alertBox.className = 'alert-box';
 
-  if (!latestOnline) {
+  if (powerFailureEvent) {
+    alertBox.classList.add('bad');
+    alertBox.innerHTML = `<strong>TV still on after OFF</strong><p>${safe(powerFailureEvent.note || 'The remote command was sent, but the power meter still reports TV-on power.')}</p>`;
+    alertCount.textContent = '1 grouped';
+  } else if (!latestOnline) {
     alertBox.classList.add('bad');
     alertBox.innerHTML = '<strong>Sensor offline</strong><p>No recent ESP32 reading. Check power, Wi-Fi, or API token configuration.</p>';
     alertCount.textContent = '1 grouped';
@@ -1339,11 +1391,39 @@ function renderReadings(readings) {
   `).join('');
 }
 
+function renderPowerReadings(readings) {
+  latestPowerReadings = readings || [];
+  const rows = document.getElementById('powerRows');
+
+  if (!rows) return;
+
+  if (!latestPowerReadings.length) {
+    rows.innerHTML = `
+      <tr>
+        <td class="empty-row" colspan="7">No power readings recorded.</td>
+      </tr>
+    `;
+    return;
+  }
+
+  rows.innerHTML = latestPowerReadings.map((row) => `
+    <tr>
+      <td>${formatTime(row.ts)}</td>
+      <td>${safe(row.state || '-')}</td>
+      <td>${formatWatts(row.apower_w)}</td>
+      <td>${row.voltage_v ?? ''}</td>
+      <td>${row.current_a ?? ''}</td>
+      <td>${safe(row.source || '')}</td>
+      <td>${safe(row.note || '')}</td>
+    </tr>
+  `).join('');
+}
+
 async function refresh() {
   const devices = await apiJson('/api/devices');
   renderDeviceFilter(devices);
 
-  const [summary, settings, remote, power, sessionSummary, calibration, session, series, events, commands, readings] = await Promise.all([
+  const [summary, settings, remote, power, sessionSummary, calibration, session, series, events, commands, readings, powerReadings] = await Promise.all([
     apiJson(apiUrl('/api/summary')),
     apiJson('/api/settings'),
     apiJson('/api/remote/status'),
@@ -1354,7 +1434,8 @@ async function refresh() {
     apiJson(apiUrl('/api/sleep-series')),
     apiJson(apiUrl('/api/events', { limit: 20 })),
     apiJson(apiUrl('/api/commands', { limit: 20 })),
-    apiJson(apiUrl('/api/readings', { limit: 80 }))
+    apiJson(apiUrl('/api/readings', { limit: 80 })),
+    apiJson('/api/power/readings?limit=80')
   ]);
 
   latestOnline = isDeviceOnline(summary.last_ts);
@@ -1373,6 +1454,7 @@ async function refresh() {
   renderEvents(events);
   renderCommands(commands);
   renderReadings(readings);
+  renderPowerReadings(powerReadings);
   setRemoteAvailability(latestOnline);
   renderOperationsRail(summary, settings, remote, session);
   const wasAuthBlocked = !tokenGate.hidden;

@@ -55,6 +55,27 @@ COMMAND_COLUMNS = [
     "note",
 ]
 
+POWER_READING_COLUMNS = [
+    "id",
+    "ts",
+    "provider",
+    "host",
+    "switch_id",
+    "connected",
+    "ready",
+    "state",
+    "tv_on",
+    "output",
+    "apower_w",
+    "voltage_v",
+    "current_a",
+    "temperature_c",
+    "wifi_rssi",
+    "on_threshold_w",
+    "source",
+    "note",
+]
+
 DEFAULT_SETTINGS = {
     "sleep_threshold": 600,
     "distance_min_cm": 40,
@@ -87,6 +108,26 @@ TV_OFF_SUCCESS_EVENT_TYPES = (
     "tv_off_remote_manual",
     "tv_off_esp32_auto",
     "tv_off_skipped_tv_already_off",
+)
+
+TV_OFF_FAILURE_EVENT_TYPES = (
+    "tv_off_remote_failed",
+    "tv_off_esp32_manual_failed",
+    "tv_off_power_still_on",
+    "tv_off_power_unknown",
+)
+
+TV_OFF_VERIFIED_EVENT_TYPES = (
+    "tv_off_skipped_tv_already_off",
+    "tv_off_power_confirmed",
+)
+
+TV_OFF_ATTEMPT_EVENT_TYPES = (
+    "tv_off_threshold_reached",
+    "tv_off_remote_auto",
+    "tv_off_remote_manual",
+    "tv_off_esp32_auto",
+    "tv_off_esp32_manual",
 )
 
 
@@ -161,6 +202,30 @@ def ensure_db():
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS power_readings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts TEXT NOT NULL,
+                provider TEXT,
+                host TEXT,
+                switch_id INTEGER,
+                connected INTEGER,
+                ready INTEGER,
+                state TEXT,
+                tv_on INTEGER,
+                output INTEGER,
+                apower_w REAL,
+                voltage_v REAL,
+                current_a REAL,
+                temperature_c REAL,
+                wifi_rssi INTEGER,
+                on_threshold_w REAL,
+                source TEXT,
+                note TEXT
+            )
+            """
+        )
 
         migrate_readings_table(conn)
         migrate_events_table(conn)
@@ -174,6 +239,8 @@ def ensure_db():
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commands_status ON commands(status)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commands_device ON commands(device_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_commands_expires ON commands(expires_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_power_readings_ts ON power_readings(ts)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_power_readings_source ON power_readings(source)")
 
 
 def migrate_readings_table(conn):
@@ -236,6 +303,15 @@ def as_int(value):
         return 1 if value else 0
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def as_float(value):
+    if value is None:
+        return None
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return None
 
@@ -334,6 +410,41 @@ def insert_event(payload):
                 as_int(payload.get("dist_filtered")),
                 payload.get("note"),
             ),
+        )
+        return cursor.lastrowid
+
+
+def insert_power_reading(status, source="api", note=None):
+    if not status or not status.get("configured"):
+        return None
+
+    values = {
+        "ts": status.get("last_probe_at") or now_iso(),
+        "provider": status.get("provider"),
+        "host": status.get("host"),
+        "switch_id": as_int(status.get("switch_id")),
+        "connected": as_int(status.get("connected")),
+        "ready": as_int(status.get("ready")),
+        "state": status.get("state"),
+        "tv_on": as_int(status.get("tv_on")),
+        "output": as_int(status.get("output")),
+        "apower_w": as_float(status.get("apower_w")),
+        "voltage_v": as_float(status.get("voltage_v")),
+        "current_a": as_float(status.get("current_a")),
+        "temperature_c": as_float(status.get("temperature_c")),
+        "wifi_rssi": as_int(status.get("wifi_rssi")),
+        "on_threshold_w": as_float(status.get("on_threshold_w")),
+        "source": source,
+        "note": note or status.get("last_probe_error"),
+    }
+
+    columns = ", ".join(values.keys())
+    placeholders = ", ".join(["?"] * len(values))
+
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            f"INSERT INTO power_readings ({columns}) VALUES ({placeholders})",
+            list(values.values()),
         )
         return cursor.lastrowid
 
@@ -610,6 +721,37 @@ def get_commands_for_export(device_id=None):
         return [row_to_dict(cursor, row) for row in cursor.fetchall()]
 
 
+def get_power_readings(limit=200):
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "SELECT * FROM power_readings ORDER BY id DESC LIMIT ?",
+            (limit,),
+        )
+        return [row_to_dict(cursor, row) for row in cursor.fetchall()]
+
+
+def get_power_readings_for_export():
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute("SELECT * FROM power_readings ORDER BY id ASC")
+        return [row_to_dict(cursor, row) for row in cursor.fetchall()]
+
+
+def get_power_readings_between(start, end):
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            """
+            SELECT * FROM power_readings
+            WHERE ts >= ? AND ts < ?
+            ORDER BY ts ASC
+            """,
+            (
+                start.isoformat(timespec="seconds"),
+                end.isoformat(timespec="seconds"),
+            ),
+        )
+        return [row_to_dict(cursor, row) for row in cursor.fetchall()]
+
+
 def claim_next_command(device_id):
     claimed_at = now_iso()
 
@@ -703,13 +845,29 @@ def event_sort_key(row):
 
 
 def get_power_events(start=None, end=None, device_id=None):
+    return get_events_by_types(TV_OFF_SUCCESS_EVENT_TYPES, start, end, device_id)
+
+
+def get_power_failure_events(start=None, end=None, device_id=None):
+    return get_events_by_types(TV_OFF_FAILURE_EVENT_TYPES, start, end, device_id)
+
+
+def get_verified_power_events(start=None, end=None, device_id=None):
+    return get_events_by_types(TV_OFF_VERIFIED_EVENT_TYPES, start, end, device_id)
+
+
+def get_tv_off_attempt_events(start=None, end=None, device_id=None):
+    return get_events_by_types(TV_OFF_ATTEMPT_EVENT_TYPES, start, end, device_id)
+
+
+def get_events_by_types(event_types, start=None, end=None, device_id=None):
     device_id = normalize_device_id(device_id)
-    placeholders = ", ".join(["?"] * len(TV_OFF_SUCCESS_EVENT_TYPES))
+    placeholders = ", ".join(["?"] * len(event_types))
     query = f"""
         SELECT * FROM events
         WHERE event_type IN ({placeholders})
     """
-    params = list(TV_OFF_SUCCESS_EVENT_TYPES)
+    params = list(event_types)
 
     if device_id:
         query += " AND device_id IN (?, '*')"
@@ -729,6 +887,21 @@ def get_power_events(start=None, end=None, device_id=None):
 
 def get_last_power_event(start=None, end=None, device_id=None):
     events = get_power_events(start, end, device_id)
+    return events[-1] if events else None
+
+
+def get_last_power_failure_event(start=None, end=None, device_id=None):
+    events = get_power_failure_events(start, end, device_id)
+    return events[-1] if events else None
+
+
+def get_last_verified_power_event(start=None, end=None, device_id=None):
+    events = get_verified_power_events(start, end, device_id)
+    return events[-1] if events else None
+
+
+def get_last_tv_off_attempt_event(start=None, end=None, device_id=None):
+    events = get_tv_off_attempt_events(start, end, device_id)
     return events[-1] if events else None
 
 
@@ -840,6 +1013,19 @@ def get_summary(device_id=None):
         summary.update(row_to_dict(cursor, cursor.fetchone()))
         summary["commands"] = summary.get("commands") or 0
         summary["pending_commands"] = summary.get("pending_commands") or 0
+
+        cursor = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS power_samples,
+                MAX(ts) AS last_power_ts,
+                AVG(CASE WHEN tv_on = 1 THEN apower_w END) AS avg_tv_on_power_w,
+                AVG(CASE WHEN tv_on = 0 AND ready = 1 THEN apower_w END) AS avg_standby_power_w
+            FROM power_readings
+            """
+        )
+        summary.update(row_to_dict(cursor, cursor.fetchone()))
+        summary["power_samples"] = summary.get("power_samples") or 0
         return summary
 
 
@@ -848,11 +1034,16 @@ def clear_all_data():
         reading_cursor = conn.execute("DELETE FROM readings")
         event_cursor = conn.execute("DELETE FROM events")
         command_cursor = conn.execute("DELETE FROM commands")
+        power_cursor = conn.execute("DELETE FROM power_readings")
         conn.execute(
-            "DELETE FROM sqlite_sequence WHERE name IN ('readings', 'events', 'commands')"
+            """
+            DELETE FROM sqlite_sequence
+            WHERE name IN ('readings', 'events', 'commands', 'power_readings')
+            """
         )
         return {
             "readings_deleted": reading_cursor.rowcount,
             "events_deleted": event_cursor.rowcount,
             "commands_deleted": command_cursor.rowcount,
+            "power_readings_deleted": power_cursor.rowcount,
         }

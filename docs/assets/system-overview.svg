@@ -78,7 +78,8 @@
   <path class="line dash" d="M948 358 C980 326 986 300 958 268" marker-end="url(#arrow)"/>
   <text class="muted mono" x="986" y="320" font-size="13">watts</text>
 
-  <rect x="70" y="444" width="980" height="58" rx="10" fill="#eef2f7" stroke="#d5deeb"/>
-  <text class="text" x="96" y="478" font-size="15" font-weight="800">Recommended flow:</text>
-  <text class="muted" x="248" y="478" font-size="15">ESP32 measures sleep near the bed. The server sends OFF through a hub near the TV. Shelly verifies whether the TV really reached standby.</text>
+  <rect x="70" y="434" width="980" height="76" rx="10" fill="#eef2f7" stroke="#d5deeb"/>
+  <text class="text" x="96" y="466" font-size="15" font-weight="800">Recommended flow:</text>
+  <text class="muted" x="270" y="462" font-size="14">ESP32 measures sleep near the bed. The server sends OFF through a hub near the TV.</text>
+  <text class="muted" x="270" y="486" font-size="14">Shelly verifies whether the TV really reached standby.</text>
 </svg>

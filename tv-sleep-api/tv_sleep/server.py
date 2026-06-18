@@ -217,7 +217,7 @@ class Handler(BaseHTTPRequestHandler):
 
         self.send_header(
             "Access-Control-Allow-Headers",
-            "Content-Type, X-DrowseOff-Token, X-TV-Sleep-Token, Authorization",
+            "Content-Type, X-DrowseOff-Token, Authorization",
         )
 
     def send_json(self, status, payload):
@@ -298,8 +298,7 @@ class Handler(BaseHTTPRequestHandler):
         auth_header = self.headers.get("Authorization", "")
         if auth_header.lower().startswith("bearer "):
             return auth_header[7:].strip()
-        drowseoff_token = self.headers.get("X-DrowseOff-Token", "").strip()
-        return drowseoff_token or self.headers.get("X-TV-Sleep-Token", "").strip()
+        return self.headers.get("X-DrowseOff-Token", "").strip()
 
     def require_api_auth(self, path):
         if not path.startswith("/api/") or path == "/api/health":

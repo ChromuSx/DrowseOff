@@ -64,6 +64,7 @@ const unsigned long COMMAND_CHECK_INTERVAL_MS = 5000;
 const unsigned long SETTINGS_SYNC_INTERVAL_MS = 60000;
 const unsigned long WIFI_RECONNECT_INTERVAL_MS = 30000;
 const unsigned long REMOTE_AUTO_RETRY_INTERVAL_MS = 30000;
+const int REMOTE_AUTO_MAX_ATTEMPTS = 5;
 const unsigned long COMMAND_COMPLETE_RETRY_INTERVAL_MS = 15000;
 const int HTTP_GET_TIMEOUT_MS = 2000;
 const int HTTP_POST_TIMEOUT_MS = 8000;
@@ -96,6 +97,8 @@ unsigned long lastCommandCheck = 0;
 unsigned long lastSettingsSync = 0;
 unsigned long lastWifiRetry = 0;
 unsigned long lastRemoteAutoAttempt = 0;
+int remoteAutoAttempts = 0;
+bool rearmAllowed = false;
 unsigned long lastCommandCompleteAttempt = 0;
 bool otaConfigured = false;
 bool otaStarted = false;
@@ -289,16 +292,17 @@ String urlEncode(const String& value) {
   return result;
 }
 
-bool postJson(const String& url, const String& json) {
+// Returns the HTTP status code, or -1 when the request could not be sent.
+int postJsonStatus(const String& url, const String& json) {
   if (!SEND_DATA_TO_SERVER || !wifiConfigured() || !serverConfigured() || WiFi.status() != WL_CONNECTED) {
-    return false;
+    return -1;
   }
 
   HTTPClient http;
   http.setTimeout(HTTP_POST_TIMEOUT_MS);
 
   if (!http.begin(url)) {
-    return false;
+    return -1;
   }
 
   http.addHeader("Content-Type", "application/json");
@@ -309,6 +313,11 @@ bool postJson(const String& url, const String& json) {
   int statusCode = http.POST(json);
   http.end();
 
+  return statusCode;
+}
+
+bool postJson(const String& url, const String& json) {
+  int statusCode = postJsonStatus(url, json);
   return statusCode >= 200 && statusCode < 300;
 }
 
@@ -583,20 +592,26 @@ void sendReadingToServer(
   Serial.print(sent ? "OK" : "NO");
 }
 
-bool sendEventToServer(const char* eventType, int filteredDistance, const char* note) {
+// Returns the HTTP status code, or -1 when the request could not be sent.
+// `attempt` > 0 tells the server which retry this is, so it can avoid
+// storing the same threshold event more than once.
+int sendEventToServer(const char* eventType, int filteredDistance, const char* note, int attempt = 0) {
   String json = "{";
   json += "\"device_id\":\"" + escapeJson(String(DEVICE_ID)) + "\"";
   json += ",\"event_type\":\"" + String(eventType) + "\"";
   json += ",\"sleep_score\":" + String(sleepScore);
   json += ",\"dist_filtered\":" + String(filteredDistance);
   json += ",\"note\":\"" + escapeJson(String(note)) + "\"";
+  if (attempt > 0) {
+    json += ",\"attempt\":" + String(attempt);
+  }
   json += "}";
 
-  bool sent = postJson(serverUrl("/api/events"), json);
+  int statusCode = postJsonStatus(serverUrl("/api/events"), json);
 
   Serial.print(" | Server event: ");
-  Serial.print(sent ? "OK" : "NO");
-  return sent;
+  Serial.print(statusCode >= 200 && statusCode < 300 ? "OK" : "NO");
+  return statusCode;
 }
 
 void resetDistanceFilter() {
@@ -810,6 +825,8 @@ void loop() {
       resetDistanceFilter();
       tvAlreadyOff = false;
       lastRemoteAutoAttempt = 0;
+      remoteAutoAttempts = 0;
+      rearmAllowed = false;
       scoreReason = "reset: out of bed";
     } else {
       sleepScore -= 1;
@@ -845,6 +862,17 @@ void loop() {
 
   if (sleepScore > sleepThreshold) {
     sleepScore = sleepThreshold;
+  }
+
+  // Re-arm automatic TV OFF once the person has clearly been awake again
+  // (score fell back to half the threshold) without leaving the bed.
+  // Only applies after an automatic threshold trigger, not a manual command.
+  if (tvAlreadyOff && rearmAllowed && sleepScore <= sleepThreshold / 2) {
+    tvAlreadyOff = false;
+    rearmAllowed = false;
+    lastRemoteAutoAttempt = 0;
+    remoteAutoAttempts = 0;
+    scoreReason += " | re-armed";
   }
 
   retryPendingCommandCompletion(filteredDistance);
@@ -909,6 +937,7 @@ void loop() {
       tvCommandSentThisLoop = true;
       esp32AutoSentThisLoop = true;
       tvAlreadyOff = true;
+      rearmAllowed = true;
     } else {
       if (lastRemoteAutoAttempt == 0 || millis() - lastRemoteAutoAttempt >= REMOTE_AUTO_RETRY_INTERVAL_MS) {
         Serial.print(" REMOTE REQUEST");
@@ -938,9 +967,29 @@ void loop() {
     scoreReason);
 
   if (remoteAutoRequestThisLoop) {
-    bool remoteRequestSent = sendEventToServer("tv_off_threshold_reached", filteredDistance, "Sleep threshold reached");
-    if (remoteRequestSent) {
+    remoteAutoAttempts++;
+    int remoteStatus = sendEventToServer(
+      "tv_off_threshold_reached",
+      filteredDistance,
+      "Sleep threshold reached",
+      remoteAutoAttempts);
+
+    if (remoteStatus >= 200 && remoteStatus < 300) {
       tvAlreadyOff = true;
+      rearmAllowed = true;
+      remoteAutoAttempts = 0;
+    } else if (remoteStatus == 409) {
+      // The server has automatic remote sends disabled: retrying cannot help.
+      tvAlreadyOff = true;
+      rearmAllowed = true;
+      remoteAutoAttempts = 0;
+      Serial.print(" | Remote auto disabled on server");
+    } else if (remoteAutoAttempts >= REMOTE_AUTO_MAX_ATTEMPTS) {
+      // Stop retrying until the score re-arms or the person leaves the bed.
+      tvAlreadyOff = true;
+      rearmAllowed = true;
+      remoteAutoAttempts = 0;
+      Serial.print(" | Remote request gave up");
     } else {
       Serial.print(" | Remote request retry pending");
     }

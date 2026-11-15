@@ -647,7 +647,10 @@ function renderHero(summary, session, settings) {
   const verifiedPowerEvent = session.session_verified_power_event;
   const powerFailureEvent = session.session_power_failure_event;
   const autoOn = Number(settings.auto_power_enabled ?? 1) === 1;
-  const progress = threshold > 0 ? Math.min(100, Math.round((score / threshold) * 100)) : 0;
+  // `score` is the session maximum and drives the verdict below; the KPI
+  // shows the live score from the newest reading.
+  const liveScore = Number(latestReadings[0]?.sleep_score ?? 0);
+  const progress = threshold > 0 ? Math.min(100, Math.round((liveScore / threshold) * 100)) : 0;
 
   const badge = document.getElementById('verdictBadge');
   const title = document.getElementById('verdictTitle');
@@ -701,7 +704,7 @@ function renderHero(summary, session, settings) {
   }
 
   document.getElementById('scoreProgressFill').style.width = `${progress}%`;
-  document.getElementById('scoreProgressLabel').textContent = `${score}/${threshold || '-'}`;
+  document.getElementById('scoreProgressLabel').textContent = `${liveScore}/${threshold || '-'}`;
   document.getElementById('deviceState').innerHTML = latestOnline
     ? '<span class="ok">Online</span>'
     : '<span class="bad">Offline</span>';

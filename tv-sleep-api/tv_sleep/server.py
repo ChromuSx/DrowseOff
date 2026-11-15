@@ -23,6 +23,7 @@ from .db import (
     EVENT_COLUMNS,
     POWER_READING_COLUMNS,
     READING_COLUMNS,
+    as_int,
     clear_all_data,
     cancel_command,
     claim_next_command,
@@ -171,13 +172,15 @@ def try_send_remote_auto(payload):
             **result,
         }
     except Exception as exc:
+        attempt = as_int(payload.get("attempt")) or 0
+        attempt_note = f" (attempt {attempt})" if attempt > 0 else ""
         event_id = insert_event(
             {
                 "device_id": payload.get("device_id") or "remote",
                 "event_type": "tv_off_remote_failed",
                 "sleep_score": payload.get("sleep_score"),
                 "dist_filtered": payload.get("dist_filtered"),
-                "note": f"Automatic remote error: {exc}",
+                "note": f"Automatic remote error{attempt_note}: {exc}",
             }
         )
         return {
@@ -480,7 +483,13 @@ class Handler(BaseHTTPRequestHandler):
                 if payload.get("event_type") == "tv_power_off_attempt":
                     payload = {**payload, "event_type": "tv_off_threshold_reached"}
 
-                event_id = insert_event(payload)
+                # Firmware retries carry attempt > 1: the threshold event was
+                # already stored on the first attempt, so do not duplicate it.
+                is_retry = (
+                    payload.get("event_type") == "tv_off_threshold_reached"
+                    and (as_int(payload.get("attempt")) or 0) > 1
+                )
+                event_id = None if is_retry else insert_event(payload)
                 if payload.get("event_type") == "tv_off_threshold_reached":
                     remote_result = try_send_remote_auto(payload)
                     if not remote_result["ok"]:

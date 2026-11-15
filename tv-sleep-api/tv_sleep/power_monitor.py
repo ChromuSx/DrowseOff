@@ -37,6 +37,13 @@ def _confirmation_note(status):
 
 
 def _confirm_tv_off_after_delay(payload, device_id, source):
+    try:
+        _run_tv_off_confirmation(payload, device_id, source)
+    except Exception as exc:
+        print(f"TV OFF power confirmation failed: {exc}")
+
+
+def _run_tv_off_confirmation(payload, device_id, source):
     time.sleep(max(0, POWER_CONFIRM_DELAY_SECONDS))
     status = record_power_status(
         source="confirmation",
@@ -84,7 +91,11 @@ def schedule_tv_off_confirmation(payload, device_id=None, source="remote"):
 def _power_sampler_loop():
     while True:
         time.sleep(max(1, POWER_SAMPLE_SECONDS))
-        record_power_status(source="sampler", use_cache=False)
+        try:
+            record_power_status(source="sampler", use_cache=False)
+        except Exception as exc:
+            # Keep sampling: one failed write must not stop the thread.
+            print(f"Power sampler error: {exc}")
 
 
 def start_power_sampler():

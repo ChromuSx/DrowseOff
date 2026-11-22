@@ -1,6 +1,9 @@
 # DrowseOff API
 
-![DrowseOff logo](static/brand/drowseoff-logo.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="static/brand/drowseoff-logo-dark.png">
+  <img src="static/brand/drowseoff-logo.png" alt="DrowseOff" width="352">
+</picture>
 
 Local API and dashboard for DrowseOff. It receives ESP32 sensor readings,
 stores them in SQLite, renders the web dashboard, and can send a TV OFF command

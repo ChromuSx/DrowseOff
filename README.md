@@ -1,5 +1,12 @@
 # DrowseOff
 
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="tv-sleep-api/static/brand/drowseoff-logo-dark.png">
+    <img src="tv-sleep-api/static/brand/drowseoff-logo.png" alt="DrowseOff" width="352">
+  </picture>
+</div>
+
 DrowseOff turns off an infrared-controlled TV when someone watching from bed has been still for a while. An ESP32 reads a bedside radar, and a self-hosted server asks a BroadLink hub near the TV to send the OFF command. Readings and command history stay on your server in SQLite.
 
 ![Illustrated bedroom with a radar sensor facing the pillow and an infrared hub beside the TV.](docs/assets/bedside-setup.webp)

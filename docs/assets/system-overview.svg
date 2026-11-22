@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="824" height="360" viewBox="0 0 824 360" role="img" aria-labelledby="title desc">
-  <title id="title">How the TV OFF command travels</title>
+  <title id="title">How the TV OFF command travels in the network hub setup</title>
   <desc id="desc">The ESP32 scores stillness using the LD2410C radar and sends a threshold event over Wi-Fi to the home server. In Auto mode the server asks the BroadLink hub over the LAN to send a learned infrared OFF command to the TV. An optional Shelly meter reports the TV's power draw to the server.</desc>
   <defs>
     <style>
@@ -22,7 +22,7 @@
   </defs>
 
   <rect width="824" height="360" rx="18" fill="#112431"/>
-  <text x="32" y="49" fill="#f2f5ef" font-size="32" font-weight="650">How the OFF command travels</text>
+  <text x="32" y="49" fill="#f2f5ef" font-size="32" font-weight="650">TV OFF with a network IR hub</text>
   <path d="M32 69h760" stroke="#3b515b"/>
   <rect x="32" y="82" width="760" height="93" fill="url(#dots)"/>
 

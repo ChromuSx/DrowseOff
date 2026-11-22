@@ -7,7 +7,7 @@
   </picture>
 </div>
 
-DrowseOff turns off an infrared-controlled TV when someone watching from bed has been still for a while. An ESP32 reads a bedside radar, and a self-hosted server asks a BroadLink hub near the TV to send the OFF command. Readings and command history stay on your server in SQLite.
+DrowseOff uses a bedside radar to tell when someone watching TV has been still for a while. It can log the readings in Monitor mode or turn off the TV in Auto mode. The included firmware runs on an ESP32 with an LD2410C radar. Readings and command history stay on your server in SQLite.
 
 ![Illustrated bedroom with a radar sensor facing the pillow and an infrared hub beside the TV.](docs/assets/bedside-setup.webp)
 
@@ -15,7 +15,7 @@ DrowseOff turns off an infrared-controlled TV when someone watching from bed has
 
 ## How it decides to turn off the TV
 
-![The bedside ESP32 sends radar readings over Wi-Fi to the local server, which asks the BroadLink hub to turn off the TV. An optional Shelly meter reports power use.](docs/assets/system-overview.svg)
+![Example using a hub. The bedside ESP32 reports to the local server, a BroadLink hub sends infrared OFF to the TV, and an optional Shelly meter reports power use.](docs/assets/system-overview.svg)
 
 The LD2410C radar measures presence, movement and distance. About once a second, the ESP32 checks whether someone is within the configured bed range. The default is **40–120 cm**.
 
@@ -28,7 +28,16 @@ For the BroadLink setup, **Monitor** keeps recording while suppressing automatic
 
 ## Quick start
 
-For the reference build, gather an ESP32 DevKit, an LD2410C radar, four jumper wires, a USB cable for power and programming, a computer running Docker Compose, and a BroadLink IR hub on the same LAN. Place the sensor beside the bed and the hub where its infrared signal can reach the TV. A Shelly power meter is optional.
+For the sensor and dashboard, start with an ESP32 DevKit, an LD2410C radar, jumper wires, a USB data cable and an always-on computer on the same LAN. The instructions below use Docker Compose. Choose the hardware for TV control according to what you want to do.
+
+| Goal | What you need beyond the sensor and server |
+| --- | --- |
+| Monitor stillness and calibrate the sensor | Nothing else. Choose **Monitor** in Settings. |
+| Turn off the TV with a network IR hub | The built-in hub integration supports BroadLink. It learns the OFF command from your TV remote. |
+| Turn off the TV directly from the ESP32 | Wire an IR emitter within sight of the TV. The sketch sends a fixed Samsung OFF code. If your TV uses another code or protocol, adapt the sketch. [Direct IR wiring](docs/hardware.md#optional-direct-ir-wiring) |
+| Verify standby after a hub command | Optionally add a wattmeter. The built-in integration reads a compatible Shelly plug. TV OFF works without a meter. |
+
+Other brands can work through a custom integration. For example, a home automation system can read the sleep score from the API and control a TV it already supports. [Integration options](tv-sleep-api/README.md#using-other-hardware)
 
 ![Reference hardware showing the ESP32 and radar with their enclosure, the local server, the BroadLink hub beside the TV, and the optional power meter.](docs/assets/reference-hardware.svg)
 
@@ -42,13 +51,13 @@ cd DrowseOff/tv-sleep-api
 cp .env.example .env
 ```
 
-In `.env`, set `DROWSEOFF_API_TOKEN` to a long random value and `BROADLINK_HOST` to the hub's LAN address. Keep the token handy for the ESP32 and dashboard. Start the service with Docker Compose.
+In `.env`, set `DROWSEOFF_API_TOKEN` to a long random value and keep it handy for the ESP32 and dashboard. For a BroadLink hub, keep `DROWSEOFF_REMOTE_PROVIDER=broadlink` and set `BROADLINK_HOST` to its LAN address. For sensor-only monitoring use `DROWSEOFF_REMOTE_PROVIDER=none`. For a wired ESP32 emitter use `DROWSEOFF_REMOTE_PROVIDER=esp32_ir`. Start the service with Docker Compose.
 
 ```sh
 docker compose up -d --build
 ```
 
-Open `http://YOUR_SERVER_IP:8010/` and enter the token. In **Settings**, switch **Automatic TV OFF** to **Monitor** while you position the sensor and test the remote.
+Open `http://YOUR_SERVER_IP:8010/` and enter the token. In **Settings**, switch **Automatic TV OFF** to **Monitor** while you position the sensor.
 
 ### 2. Wire and upload the sensor
 
@@ -64,7 +73,11 @@ Set the Wi-Fi name and password, a device ID, the server's LAN URL including por
 
 Open Serial Monitor at **115200 baud** and look for `Radar: OK`. In the dashboard, check that **Latest reading** advances about every ten seconds. Lie in your usual viewing position and compare the reported distance with the bed range in **Settings**. After a large change to the maximum distance, restart the ESP32 if radar configuration on boot is enabled.
 
-### 3. Teach the hub the OFF command
+### 3. Test TV control
+
+For monitoring alone, setup is complete after step 2. For a wired ESP32 emitter, point it at the TV and use **Turn TV off** in the dashboard to test the code. Once the TV responds, enable **ESP32 IR auto fallback** and switch **Automatic TV OFF** to **Auto**.
+
+For a BroadLink hub, leave **ESP32 IR auto fallback** off and teach the hub your remote's code.
 
 1. In **TV Commands**, select **Start learning**, aim the TV remote at the BroadLink and press OFF. Select **Save OFF code**. A dedicated OFF command leaves a TV in standby if it receives the signal twice.
 2. With the TV on and the remote backend showing **Ready**, select **Turn TV off**, then **Confirm TV OFF**. Check that the screen turns off.

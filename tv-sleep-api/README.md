@@ -45,18 +45,15 @@ DROWSEOFF_ALLOW_UNAUTHENTICATED_API=0
 DROWSEOFF_CORS_ORIGIN=
 DROWSEOFF_DEFAULT_SENSOR_DEVICE_ID=drowseoff-sensor
 
-DROWSEOFF_REMOTE_PROVIDER=broadlink
-DROWSEOFF_REMOTE_AUTO_ENABLED=1
-BROADLINK_HOST=YOUR_BROADLINK_IP
-BROADLINK_PACKET_PATH=/data/broadlink_tv_off.b64
-BROADLINK_STATUS_PROBE_INTERVAL=60
-
-DROWSEOFF_POWER_METER_PROVIDER=shelly
-SHELLY_HOST=YOUR_SHELLY_IP
-SHELLY_SWITCH_ID=0
-SHELLY_ON_THRESHOLD_W=30
-SHELLY_STATUS_CACHE_SECONDS=5
+DROWSEOFF_REMOTE_PROVIDER=none
+DROWSEOFF_POWER_METER_PROVIDER=none
 ```
+
+These values run the API for sensor-only monitoring. Select **Monitor** under
+**Automatic TV OFF** in the dashboard. For a network hub, use the
+[BroadLink settings](#broadlink-workflow). For direct IR, set
+`DROWSEOFF_REMOTE_PROVIDER=esp32_ir` and wire an emitter to the ESP32.
+Power measurement is optional in every setup. [Shelly settings](#shelly-power-meter)
 
 Do not commit `.env`, database files, or learned IR packet files.
 
@@ -207,7 +204,7 @@ therefore miss a new episode. A connection failure before IR transmission
 returns HTTP 503 and can be retried. Monitor mode or an uncertain delivery
 returns HTTP 409 and stops automatic resends for that episode.
 
-Keep `esp32_ir_auto_enabled=0` when using a remote hub such as BroadLink. Enable
+Keep `esp32_ir_auto_enabled=0` when using the BroadLink hub. Enable
 it only if the ESP32 has a working IR transmitter that should act as the
 automatic TV OFF device.
 
@@ -291,9 +288,25 @@ sleep threshold was reached. Export them with:
 GET /api/export/power-readings.csv
 ```
 
+## Using Other Hardware
+
+BroadLink is the only network IR hub driver included in the server. The
+separate wired ESP32 path sends a Samsung IR code from the firmware. The
+included power meter driver reads `switch:<id>.apower` from the local
+`/rpc/Shelly.GetStatus` response. A hub or meter that uses a different API
+needs a matching driver to appear in the DrowseOff dashboard. The server
+implementations are in [remote_control.py](tv_sleep/remote_control.py) and
+[power_meter.py](tv_sleep/power_meter.py).
+
+Alternatively, an external automation can poll `GET /api/latest?device_id=YOUR_DEVICE_ID`
+with the API token, use the `sleep_score` reading and send OFF through a TV
+integration it already supports. In that setup, leave DrowseOff in **Monitor**
+and let the automation decide when to act on a fresh threshold crossing.
+
 ## Home Assistant
 
-The simplest Home Assistant integration is a REST command:
+To have Home Assistant ask DrowseOff's configured BroadLink hub to send OFF,
+use a REST command:
 
 ```text
 POST http://YOUR_SERVER_IP:8010/api/remote/send-off

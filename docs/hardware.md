@@ -6,42 +6,40 @@ to adapt the project to different rooms or remote-control hardware.
 
 ![Reference hardware](assets/reference-hardware.svg)
 
-## Recommended Build
+## Reference Build
 
-The reference build separates sensing from TV control:
-
-- the ESP32 and LD2410C sit near the bed;
-- the DrowseOff API runs on an always-on local server;
-- a BroadLink-compatible IR hub sits near the TV;
-- an optional Shelly Plug measures whether the TV is really on or in standby.
+The tested network-hub setup separates sensing from TV control. The ESP32 and
+LD2410C sit near the bed, the API runs on a local server, and a BroadLink IR
+hub sits within sight of the TV. A Shelly plug can optionally measure power at
+the TV outlet.
 
 ![System overview](assets/system-overview.svg)
 
-This layout is more reliable than trying to point a small IR LED from the bed
-to the TV. The sensor can stay where sleep detection works best, while the
-remote hub can stay where IR works best.
+With a separate hub, you can aim the radar at the bed and place the IR sender
+where its signal reaches the TV.
 
 ## Build Profiles
 
-| Profile | Hardware | Best for | Tradeoffs |
-| --- | --- | --- | --- |
-| Recommended | ESP32 + LD2410C + local server + BroadLink + Shelly | Reliable TV OFF plus verification | More devices to configure |
-| Minimal remote | ESP32 + LD2410C + local server + BroadLink | Most users who only need TV OFF | Cannot verify power state without Shelly |
-| Sensor-only | ESP32 + LD2410C + local server | Monitoring and calibration | No automatic TV OFF |
-| Direct IR fallback | ESP32 + LD2410C + IR transmitter | Fully DIY builds near the TV | Weak modules may need careful aiming or stronger IR hardware |
+All profiles below use the bedside sensor and the local API.
+
+| Profile | Additional hardware | What it does |
+| --- | --- | --- |
+| Monitor only | None | Records stillness and distance for monitoring and calibration. |
+| Network IR | BroadLink IR hub and the TV remote for learning | Sends the learned OFF command from a spot near the TV. |
+| Direct IR | IR emitter wired to the ESP32 | Sends the Samsung code in the sketch. Other TV codes require a firmware change. |
+| Network IR with standby verification | BroadLink IR hub plus a compatible Shelly power meter | Checks TV power before an automatic hub command and verifies standby after a hub send. |
 
 ## Bill of Materials
 
-| Component | Required | Purpose | Known working type | Alternatives |
-| --- | --- | --- | --- | --- |
-| ESP32 development board | Yes | Reads the radar sensor and posts readings to the API | ESP32 DevKit / ESP32-WROOM board | ESP32-S3/C3 boards with firmware pin adjustments |
-| LD2410C mmWave sensor | Yes | Detects presence, movement, stillness, and target distance | Hi-Link HLK-LD2410C | Other LD2410 variants, with firmware/library checks |
-| Jumper wires | Yes | Connect ESP32 to LD2410C | Female-to-female Dupont wires | Breadboard wires, soldered harness |
-| Small plastic enclosure | Recommended | Protects the ESP32 and sensor | ABS electronics box | 3D printed case, project box |
-| Local server | Yes | Runs API, dashboard, SQLite, remote backend | Mini PC, NAS, Raspberry Pi, always-on desktop | Any Docker-capable machine |
-| BroadLink IR hub | Recommended | Sends TV OFF near the TV | RM Mini 3 / RM4 Mini class device | SwitchBot Hub, Home Assistant remote entity, future providers |
-| Shelly Plug power meter | Optional | Confirms whether TV is on or standby | Shelly Plug S Gen3/MTR Gen3 | Other local HTTP/MQTT power meters, future providers |
-| Direct IR transmitter | Optional | ESP32 hardware fallback | 38 kHz IR transmitter module | Stronger transistor-driven IR LED circuit |
+| Component | When you need it | Selection notes |
+| --- | --- | --- |
+| ESP32 development board and LD2410C radar | All profiles using the included firmware | The pinout below is for the ESP32 DevKit. Check UART availability, pin assignments and radar protocol before substituting a board or sensor. |
+| USB data cable and jumper wires | Programming, power and radar wiring | Match the cable to the board and the wires to your headers. A soldered harness also works. |
+| Local server | All profiles using the dashboard | Any always-on computer that can run the API. The setup guide uses Docker Compose. |
+| Small plastic enclosure | Optional | An electronics box or 3D-printed case protects the bedside sensor. |
+| Network IR hub | Network IR profiles | The included driver learns and sends IR with a BroadLink hub. Other makes need their own integration. |
+| Direct IR emitter | Direct IR profile | Wire a suitable 38 kHz transmitter module to the ESP32 and check that the TV responds to its code. |
+| Plug-in power meter | Optional standby verification | The included driver reads wattage from a Shelly plug with the local RPC interface, such as the Shelly Plug S Gen3. |
 
 Official/reference pages:
 
@@ -68,8 +66,10 @@ but is not enough for the full DrowseOff scoring logic.
 
 ## Optional Direct IR Wiring
 
-Direct IR is no longer the recommended default, but the firmware still supports
-it as a fallback.
+For TV control without a network hub, wire an IR emitter to the ESP32 and set
+`DROWSEOFF_REMOTE_PROVIDER=esp32_ir` on the server. The sketch's
+`sendTvPower()` sends the 32-bit Samsung code `0xE0E019E6`. If your TV uses
+another code or protocol, update that function and upload the adapted sketch.
 
 | IR module pin | ESP32 pin | Notes |
 | --- | --- | --- |
@@ -107,9 +107,9 @@ Good placement habits:
 4. Start the local API and dashboard.
 5. Confirm the dashboard receives live readings.
 6. Place the sensor near the bed and run calibration.
-7. Configure the remote hub and learn the TV OFF command.
-8. If using Shelly, verify `TV power` changes between TV on and standby.
-9. Run a manual `Send TV OFF` test and confirm the dashboard records the result.
+7. For monitoring alone, leave **Automatic TV OFF** in **Monitor**. For TV control, learn the OFF command on the BroadLink hub or aim the wired emitter at the TV.
+8. If you added a power meter, verify that `TV power` changes between TV on and standby.
+9. If you added TV control, run a manual **Turn TV off** test and check that the TV enters standby before enabling **Auto**.
 
 ## Public Photo Policy
 

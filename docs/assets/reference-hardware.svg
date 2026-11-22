@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="824" height="452" viewBox="0 0 824 452" role="img" aria-labelledby="title desc">
-  <title id="title">DrowseOff hardware and placement</title>
+  <title id="title">DrowseOff reference hardware and placement</title>
   <desc id="desc">Place the ESP32 and LD2410C in a bedside enclosure facing the bed. Run Docker on an always-on computer on the same LAN. Put the BroadLink RM Mini in sight of the TV. An optional Shelly plug at the TV outlet can measure standby power.</desc>
   <defs>
     <style>
@@ -16,7 +16,7 @@
   </defs>
 
   <rect width="824" height="452" rx="18" fill="#f6f3e9"/>
-  <text x="32" y="49" fill="#192e35" font-size="32" font-weight="650">Hardware and placement</text>
+  <text x="32" y="49" fill="#192e35" font-size="32" font-weight="650">Example setup with a network IR hub</text>
   <path d="M32 70h760M32 251h760M410 88v143m0 40v154" fill="none" stroke="#c9cec2" stroke-width="1.5"/>
 
   <!-- Bedside enclosure with the controller and radar boards shown separately. -->

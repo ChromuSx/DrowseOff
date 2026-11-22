@@ -3,7 +3,7 @@ from .broadlink_remote import (
     broadlink_probe,
     broadlink_status,
     check_learning,
-    send_tv_off as send_broadlink_tv_off,
+    prepare_tv_off as prepare_broadlink_tv_off,
     start_learning,
 )
 
@@ -78,13 +78,15 @@ def remote_check_learning():
     raise RemoteControlError(f"Remote provider '{provider}' does not support learning")
 
 
-def remote_send_tv_off(repeat_count=1):
+def prepare_remote_tv_off(*, automatic=False):
     provider = provider_name()
 
     if provider == "broadlink":
-        return {
-            **send_broadlink_tv_off(repeat_count),
-            "provider": provider,
-        }
+        return prepare_broadlink_tv_off(automatic=automatic)
 
     raise RemoteControlError(f"Remote provider '{provider}' cannot send TV OFF")
+
+
+def remote_send_tv_off(repeat_count=1):
+    send = prepare_remote_tv_off()
+    return send(repeat_count)

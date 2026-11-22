@@ -2,6 +2,7 @@ import base64
 import os
 import time
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 
 from .config import REMOTE_AUTO_ENABLED
@@ -166,11 +167,20 @@ def check_learning():
     }
 
 
-def send_tv_off(repeat_count=1):
-    repeat_count = max(1, min(int(repeat_count or 1), 5))
+def prepare_tv_off(*, automatic=False):
     packet = _read_packet()
     device = _device()
+    if automatic:
+        # python-broadlink retransmits UDP commands at this interval. A lost
+        # reply after an IR emission is ambiguous; send only one datagram.
+        from broadlink.device import DEFAULT_RETRY_INTVL
 
+        device.timeout = min(device.timeout, DEFAULT_RETRY_INTVL)
+    return partial(_send_tv_off, device, packet)
+
+
+def _send_tv_off(device, packet, repeat_count=1):
+    repeat_count = max(1, min(int(repeat_count or 1), 5))
     for index in range(repeat_count):
         device.send_data(packet)
         if index < repeat_count - 1:
@@ -180,6 +190,7 @@ def send_tv_off(repeat_count=1):
 
     return {
         **broadlink_status(probe=False),
+        "provider": "broadlink",
         "sent": True,
         "repeat_count": repeat_count,
     }

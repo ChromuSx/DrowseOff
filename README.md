@@ -1,282 +1,88 @@
 # DrowseOff
 
-<div align="center">
-  <img src="tv-sleep-api/static/brand/drowseoff-logo.png" alt="DrowseOff" width="220">
-</div>
+DrowseOff turns off an infrared-controlled TV when someone watching from bed has been still for a while. An ESP32 reads a bedside radar, and a self-hosted server asks a BroadLink hub near the TV to send the OFF command. Readings and command history stay on your server in SQLite.
 
-<p align="center">
-  <img src="https://img.shields.io/badge/ESP32-Arduino-00979D?style=for-the-badge&logo=espressif&logoColor=white" alt="ESP32 Arduino">
-  <img src="https://img.shields.io/badge/Python-3.12%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12+">
-  <img src="https://img.shields.io/badge/Docker-ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker ready">
-  <img src="https://img.shields.io/badge/SQLite-local-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite local">
-  <img src="https://img.shields.io/badge/Self--hosted-local--first-2F855A?style=for-the-badge" alt="Self-hosted local-first">
-</p>
+![Illustrated bedroom with a radar sensor facing the pillow and an infrared hub beside the TV.](docs/assets/bedside-setup.webp)
 
-<p align="center">
-  <a href="https://github.com/sponsors/ChromuSx"><img src="https://img.shields.io/badge/Sponsor-GitHub-EA4AAA?style=for-the-badge&logo=github-sponsors&logoColor=white" alt="GitHub Sponsors"></a>
-  <a href="https://ko-fi.com/chromus"><img src="https://img.shields.io/badge/Support-Ko--fi-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" alt="Ko-fi"></a>
-  <a href="https://buymeacoffee.com/chromus"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee"></a>
-  <a href="https://www.paypal.com/paypalme/giovanniguarino1999"><img src="https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="PayPal"></a>
-</p>
+[Quick start](#quick-start) · [Dashboard preview](#dashboard-preview) · [Wiring and placement](docs/hardware.md#main-sensor-wiring) · [API reference](tv-sleep-api/README.md#main-api-endpoints)
 
-<p align="center">
-  <strong>A self-hosted ESP32 sleep monitor that detects when someone is likely falling asleep while watching TV, records the data locally, and turns the TV off through a remote-control backend.</strong>
-</p>
+## How it decides to turn off the TV
 
-<p align="center">
-  <a href="#features">Features</a> |
-  <a href="#hardware-at-a-glance">Hardware</a> |
-  <a href="#how-it-works">How It Works</a> |
-  <a href="#quick-start">Quick Start</a> |
-  <a href="#configuration">Configuration</a> |
-  <a href="#remote-control-options">Remote Control</a>
-</p>
+![The bedside ESP32 sends radar readings over Wi-Fi to the local server, which asks the BroadLink hub to turn off the TV. An optional Shelly meter reports power use.](docs/assets/system-overview.svg)
 
-## Features
+The LD2410C radar measures presence, movement and distance. About once a second, the ESP32 checks whether someone is within the configured bed range. The default is **40–120 cm**.
 
-- **Bedside sleep scoring** - Uses an ESP32 and LD2410C mmWave radar to track presence, in-bed range, movement, distance stability, and a configurable sleep score.
-- **Local monitoring dashboard** - Shows live readings, historical sessions, command status, active alerts, calibration tools, light/dark theme selection, and guided API-token setup.
-- **Self-hosted storage** - Runs on a local mini PC, NAS, or home server with Docker and SQLite. Data stays on your network by default.
-- **Provider-neutral TV control** - Sends TV OFF through a remote backend near the TV. BroadLink RM Mini is the reference backend; direct ESP32 IR remains available as a fallback.
-- **Configurable automation** - Tune sleep threshold, bed distance range, automatic power policy, ESP32 IR fallback, and device filtering from the dashboard/API.
-- **Public-project hygiene** - Local secrets, databases, learned IR packets, and generated build outputs are ignored by Git.
+- A stable distance adds one point. A large change in filtered distance subtracts eight.
+- Eight consecutive readings outside the bed range reset the score to zero.
+- At **600 points**, the default threshold, Auto mode requests TV OFF. Starting from zero, that takes about **10 minutes** of steady readings. Someone watching quietly while awake can reach the same threshold.
+- After an automatic send, another episode can start once the score drops to half the threshold or resets when you leave the bed.
 
-## Reference Setup
+For the BroadLink setup, **Monitor** keeps recording while suppressing automatic OFF. The manual TV control still works. The ESP32 gives each threshold crossing an ID. If the server has already sent OFF, it returns the recorded result when the ESP32 retries. If delivery is uncertain after transmission, the server records that outcome and suppresses another automatic send for that episode.
 
-- ESP32 development board near the bed.
-- LD2410C mmWave presence sensor connected to the ESP32.
-- Local server running Docker, such as a mini PC, NAS, Raspberry Pi, or always-on desktop.
-- Remote-control backend near the TV, such as a BroadLink RM Mini.
-- Optional direct IR transmitter connected to the ESP32 for users who prefer a hardware fallback.
+## Quick start
 
-The ESP32 does not need to be close to the TV. Its main job is to measure the person near the bed and report readings over Wi-Fi. The actual TV OFF command can be handled by a remote hub placed near the TV, which is usually more reliable than a weak IR LED across the room.
+For the reference build, gather an ESP32 DevKit, an LD2410C radar, four jumper wires, a USB cable for power and programming, a computer running Docker Compose, and a BroadLink IR hub on the same LAN. Place the sensor beside the bed and the hub where its infrared signal can reach the TV. A Shelly power meter is optional.
 
-## Hardware At A Glance
+![Reference hardware showing the ESP32 and radar with their enclosure, the local server, the BroadLink hub beside the TV, and the optional power meter.](docs/assets/reference-hardware.svg)
 
-![DrowseOff reference hardware](docs/assets/reference-hardware.svg)
+### 1. Start the server
 
-The recommended public build is:
+On the computer that will run DrowseOff, create the local configuration file.
 
-| Area | Recommended hardware | Why |
-| --- | --- | --- |
-| Bedside sensor | ESP32 DevKit + LD2410C | Measures presence, stillness, distance, and sleep score near the bed. |
-| Local backend | Docker-capable mini PC, NAS, Raspberry Pi, or desktop | Stores readings locally, renders the dashboard, and sends remote commands. |
-| TV control | BroadLink RM Mini class IR hub near the TV | More reliable than a weak IR LED pointed across the room. |
-| TV verification | Shelly Plug S Gen3/MTR Gen3 or compatible power meter | Confirms whether the TV is actually on or in standby after OFF. |
-
-See the full [Hardware Guide](docs/hardware.md) for the bill of materials,
-wiring table, placement guide, build profiles, and public photo policy.
-
-## How It Works
-
-![DrowseOff system overview](docs/assets/system-overview.svg)
-
-1. The ESP32 reads the LD2410C radar sensor near the bed.
-2. The firmware posts presence, distance, movement, stillness, and sleep-score readings over Wi-Fi.
-3. The local API stores readings in SQLite and renders the dashboard.
-4. When the sleep threshold is reached, DrowseOff sends TV OFF through the configured remote backend.
-5. If a power meter is configured, DrowseOff verifies whether the TV actually dropped into standby.
-
-## Project Structure
-
-```text
-docs/                            Hardware guide and documentation diagrams
-firmware/esp32_sleep_sensor/   ESP32 Arduino firmware
-tv-sleep-api/                  Python API, dashboard, remote backends, SQLite storage
-tv-sleep-api/static/brand/     DrowseOff logo and app icons
-```
-
-## Quick Start
-
-### 1. Start the local server
-
-```bash
+```sh
 git clone https://github.com/ChromuSx/DrowseOff.git
-cd DrowseOff
-cd tv-sleep-api
+cd DrowseOff/tv-sleep-api
 cp .env.example .env
 ```
 
-Edit `.env` and set at least:
+In `.env`, set `DROWSEOFF_API_TOKEN` to a long random value and `BROADLINK_HOST` to the hub's LAN address. Keep the token handy for the ESP32 and dashboard. Start the service with Docker Compose.
 
-```env
-DROWSEOFF_API_TOKEN=replace-with-a-long-random-token
-DROWSEOFF_REMOTE_PROVIDER=broadlink
-BROADLINK_HOST=YOUR_BROADLINK_IP
-```
-
-Then start the API and dashboard:
-
-```bash
+```sh
 docker compose up -d --build
 ```
 
-Open:
+Open `http://YOUR_SERVER_IP:8010/` and enter the token. In **Settings**, switch **Automatic TV OFF** to **Monitor** while you position the sensor and test the remote.
 
-```text
-http://YOUR_SERVER_IP:8010/
-```
+### 2. Wire and upload the sensor
 
-The dashboard will ask for the API token and store it in that browser.
+With USB power disconnected, wire the radar to the ESP32. The radar's **TX goes to GPIO16** and its **RX goes to GPIO17**. Use the wiring diagram to identify the power and ground connections. [Pinout and wiring diagram](docs/hardware.md#main-sensor-wiring)
 
-### 2. Configure the ESP32 firmware
+On the computer running Arduino IDE, open a copy of the repository. From its root, copy the example settings.
 
-Create a local firmware secrets file:
-
-```bash
-cd ..
+```sh
 cp firmware/esp32_sleep_sensor/secrets.example.h firmware/esp32_sleep_sensor/secrets.h
 ```
 
-Set your Wi-Fi, server URL, device ID, and the same API token used by the server:
+Set the Wi-Fi name and password, a device ID, the server's LAN URL including port `8010`, and the same API token. In Arduino IDE, install the **esp32** board package by Espressif Systems and the **ld2410** and **IRremoteESP8266** libraries. Open the [sensor sketch](firmware/esp32_sleep_sensor/esp32_sleep_sensor.ino), connect USB, select your board and port, and upload.
 
-```cpp
-#define WIFI_SSID_VALUE "YOUR_WIFI_NAME"
-#define WIFI_PASSWORD_VALUE "YOUR_WIFI_PASSWORD"
-#define DEVICE_ID_VALUE "drowseoff-sensor"
-#define SERVER_BASE_URL_VALUE "http://YOUR_SERVER_IP:8010"
-#define API_TOKEN_VALUE "replace-with-the-same-token"
-```
+Open Serial Monitor at **115200 baud** and look for `Radar: OK`. In the dashboard, check that **Latest reading** advances about every ten seconds. Lie in your usual viewing position and compare the reported distance with the bed range in **Settings**. After a large change to the maximum distance, restart the ESP32 if radar configuration on boot is enabled.
 
-Open `firmware/esp32_sleep_sensor/esp32_sleep_sensor.ino` in Arduino IDE, select your ESP32 board and port, then upload it.
+### 3. Teach the hub the OFF command
 
-### 3. Learn a TV OFF command
+1. In **TV Commands**, select **Start learning**, aim the TV remote at the BroadLink and press OFF. Select **Save OFF code**. A dedicated OFF command leaves a TV in standby if it receives the signal twice.
+2. With the TV on and the remote backend showing **Ready**, select **Turn TV off**, then **Confirm TV OFF**. Check that the screen turns off.
+3. When the radar and manual test both work, return to **Settings** and switch **Automatic TV OFF** to **Auto**.
 
-If you use BroadLink:
+## Dashboard preview
 
-1. Open the dashboard.
-2. Go to the TV Commands area.
-3. Start learning.
-4. Press the OFF button on the original TV remote toward the BroadLink device.
-5. Save the learned OFF code.
-6. Test `Send TV OFF` from the dashboard.
+![DrowseOff dashboard showing the ESP32 online, the score reaching 600, and a TV OFF event marked on the chart.](docs/assets/dashboard-overview.png)
 
-## Configuration
+*Example session with simulated readings.* The dips in the chart show where movement lowered the score. The red dot marks the OFF event. **TV OFF sent** records transmission through the hub. With a compatible power meter, **TV OFF confirmed** means the server also observed standby consumption.
 
-The server reads local deployment settings from `tv-sleep-api/.env`. That file is ignored by Git.
+## Hardware options and reference
 
-| Variable | Purpose |
+| What you want to do | Where to look |
 | --- | --- |
-| `DROWSEOFF_API_TOKEN` | Shared API token for the firmware, dashboard, and integrations. Recommended for normal use. |
-| `DROWSEOFF_ALLOW_UNAUTHENTICATED_API` | Set to `1` only for trusted LAN experiments without authentication. |
-| `DROWSEOFF_HOST_PORT` | Host port exposed by Docker. Defaults to `8010`. |
-| `DROWSEOFF_DB` | SQLite path inside the container. Defaults to `/data/drowseoff.db`. |
-| `DROWSEOFF_DEFAULT_SENSOR_DEVICE_ID` | Default dashboard device filter. |
-| `DROWSEOFF_REMOTE_PROVIDER` | Remote backend provider. `broadlink` is currently implemented. |
-| `DROWSEOFF_REMOTE_AUTO_ENABLED` | Enables automatic remote-provider sends when the sleep threshold is reached. |
-| `BROADLINK_HOST` | BroadLink device IP or hostname. |
-| `BROADLINK_PACKET_PATH` | Saved learned TV OFF packet path. |
-| `BROADLINK_STATUS_PROBE_INTERVAL` | Remote status probe cache duration in seconds. |
-| `DROWSEOFF_POWER_METER_PROVIDER` | Optional power meter provider. Set to `shelly` for Shelly Plug S Gen3/MTR Gen3. |
-| `SHELLY_HOST` | Shelly Plug IP or hostname. |
-| `SHELLY_ON_THRESHOLD_W` | Wattage threshold used to decide whether the TV is on. |
-| `DROWSEOFF_POWER_SAMPLE_SECONDS` | Background wattage sampling interval. Defaults to `60`. |
-| `DROWSEOFF_POWER_CONFIRM_DELAY_SECONDS` | Delay before checking whether a TV OFF command really reached standby. Defaults to `20`. |
+| Build the bedside sensor or adjust its aim | [Parts, wiring and placement](docs/hardware.md) |
+| Use a wired IR emitter on the ESP32 | [Direct IR wiring](docs/hardware.md#optional-direct-ir-wiring). For automatic BroadLink control, keep `esp32_ir_auto_enabled=0`. |
+| Check whether the TV is already off and verify standby after a send | [Optional Shelly power meter](tv-sleep-api/README.md#shelly-power-meter). To run without a meter, set `DROWSEOFF_POWER_METER_PROVIDER=none`. |
+| Configure Docker, authentication or the BroadLink hub | [Server configuration](tv-sleep-api/README.md#configuration) and [example settings](tv-sleep-api/.env.example) |
+| Export readings, events, commands and power samples, or integrate Home Assistant | [API endpoints](tv-sleep-api/README.md#main-api-endpoints) and [Home Assistant example](tv-sleep-api/README.md#home-assistant) |
 
-The firmware reads local Wi-Fi and server settings from `firmware/esp32_sleep_sensor/secrets.h`. That file is also ignored by Git.
-
-## Sleep Threshold
-
-The default sleep threshold is `600`. The firmware updates the score roughly once per second:
-
-- the score rises when the person is in bed and stable;
-- strong movement lowers the score;
-- leaving the valid bed range resets the score.
-
-With the default threshold, a calm session takes roughly 10 minutes to reach the automatic TV OFF point. Lower values turn the TV off sooner; higher values wait longer.
-
-## Radar Range
-
-When `CONFIGURE_RADAR_ON_BOOT_VALUE` is enabled, the firmware configures the LD2410C detection range from the current bed max distance setting. This helps small bedroom setups avoid detecting the whole room.
-
-If you change `distance_max_cm` significantly from the dashboard, restart the ESP32 so the LD2410C hardware range matches the new placement.
-
-## Remote Control Options
-
-### BroadLink backend
-
-BroadLink is the reference backend. It is useful when the ESP32 sensor is near the bed but the IR emitter must be close to the TV.
-
-Provider-neutral endpoints:
-
-```text
-GET  /api/remote/status
-GET  /api/remote/probe
-POST /api/remote/send-off
-POST /api/remote/learn/start
-POST /api/remote/learn/check
-```
-
-### ESP32 IR fallback
-
-The firmware still supports a direct ESP32 IR transmitter fallback. Keep `esp32_ir_auto_enabled=0` when using a remote hub such as BroadLink. Enable it only when a working IR transmitter is connected to the ESP32 and aimed at the TV.
-
-### Shelly power meter
-
-DrowseOff can read a Shelly Plug S Gen3/MTR Gen3 as an optional TV power meter.
-This does not cut power to the TV. It only reads wattage so the server can tell
-whether the TV is likely on or in standby.
-
-```env
-DROWSEOFF_POWER_METER_PROVIDER=shelly
-SHELLY_HOST=YOUR_SHELLY_IP
-SHELLY_SWITCH_ID=0
-SHELLY_ON_THRESHOLD_W=30
-DROWSEOFF_POWER_SAMPLE_SECONDS=60
-DROWSEOFF_POWER_CONFIRM_DELAY_SECONDS=20
-```
-
-When the sleep threshold is reached, DrowseOff checks the power meter before
-sending an automatic remote OFF command. If the TV is already below the wattage
-threshold, it records `tv_off_skipped_tv_already_off` instead of sending another
-OFF command.
-
-When a remote OFF command is sent, DrowseOff checks the power meter again after
-`DROWSEOFF_POWER_CONFIRM_DELAY_SECONDS`. It records `tv_off_power_confirmed`
-when the TV drops below the threshold, or `tv_off_power_still_on` when wattage
-still looks like the TV is on. The dashboard surfaces that as an active alert.
-
-The backend also stores periodic power samples. Session reports can estimate TV
-on time, standby wattage, power used during a session, and how long the TV stayed
-on after sleep was detected.
-
-## API and Data
-
-The dashboard and API can be scoped by `device_id`, so one server can store multiple sensors while still letting each user focus on one room.
-
-Main data exports:
-
-```text
-GET /api/export/readings.csv
-GET /api/export/events.csv
-GET /api/export/commands.csv
-GET /api/export/power-readings.csv
-```
-
-See [`tv-sleep-api/README.md`](tv-sleep-api/README.md) for full API endpoints, Docker notes, Home Assistant examples, and manual curl tests.
-
-## Security and Privacy
-
-- Keep the service on a trusted local network unless you add a reverse proxy, TLS, and an access policy you trust.
-- Set `DROWSEOFF_API_TOKEN` and copy the same value into firmware `API_TOKEN_VALUE`.
-- Do not commit `.env`, `secrets.h`, database files, learned IR packets, or generated build outputs.
-- Arduino OTA is disabled by default. Enable it only after setting a local `OTA_PASSWORD_VALUE`.
-
-## Limitations
-
-- DrowseOff is a home automation project, not a medical or safety device.
-- mmWave placement matters. Reflections, room geometry, and bed position can affect readings.
-- TV OFF reliability depends on the remote backend position and signal strength.
-- The default algorithm is intentionally conservative and should be tuned per room.
-
-## Roadmap Ideas
-
-- Additional remote providers, such as SwitchBot Hub or MQTT-based remotes.
-- Home Assistant discovery helpers.
-- More calibration visualizations for LD2410C placement and sensitivity.
-- Optional notification hooks for failed remote commands.
-- Multi-room dashboard presets.
+Run the API on a trusted LAN. For access from outside your network, use TLS and access controls. Keep `.env`, `secrets.h`, the database and the learned IR code private. Arduino OTA is disabled by default.
 
 ## Contributing
 
-Issues, ideas, and pull requests are welcome. Please keep public-facing code, UI text, and documentation in English, and avoid committing local network details or secrets.
+Issues, build reports and pull requests are welcome. For placement problems, include the configured bed range and a few anonymized readings. Ideas for future work include additional remote providers, Home Assistant discovery, calibration charts, failure notifications and multi-room presets. Keep public code, UI text and documentation in English.
+
+Support the project through [GitHub Sponsors](https://github.com/sponsors/ChromuSx), [Ko-fi](https://ko-fi.com/chromus), [Buy Me a Coffee](https://buymeacoffee.com/chromus) or [PayPal](https://www.paypal.com/paypalme/giovanniguarino1999).

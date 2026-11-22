@@ -3,6 +3,7 @@ import hmac
 import io
 import json
 import mimetypes
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -36,6 +37,7 @@ from .db import (
     get_events,
     get_events_for_export,
     get_latest,
+    get_or_create_threshold_event,
     get_power_readings,
     get_power_readings_for_export,
     get_readings,
@@ -44,9 +46,11 @@ from .db import (
     get_summary,
     insert_event,
     insert_reading,
+    store_auto_result,
     update_settings,
 )
 from .remote_control import (
+    prepare_remote_tv_off,
     remote_check_learning,
     remote_probe,
     remote_send_tv_off,
@@ -68,6 +72,11 @@ from .reports import (
 from .time_utils import now_iso
 
 MAX_JSON_BODY_BYTES = 64 * 1024
+
+# Only threshold handlers share the slower preparation phase. A dashboard
+# mode change can still take effect while the power meter or hub is connecting.
+threshold_lock = threading.Lock()
+auto_mode_lock = threading.Lock()
 
 
 def limited_query_param(query, name, default, maximum):
@@ -115,17 +124,43 @@ def command_payload(command):
     }
 
 
-def try_send_remote_auto(payload):
-    if not REMOTE_AUTO_ENABLED:
-        return {
-            "ok": False,
-            "status": "disabled",
-            "error": "automatic remote is disabled",
-        }
+def automatic_remote_enabled():
+    return REMOTE_AUTO_ENABLED and bool(get_settings()["auto_power_enabled"])
 
+
+def handle_threshold(payload):
+    with threshold_lock:
+        event_id, result = get_or_create_threshold_event(payload)
+        if result is None:
+            result = try_send_remote_auto(payload, event_id)
+    body = {"ok": result["ok"], "id": event_id, "remote": result}
+    if result["ok"]:
+        return 201, body
+    body["error"] = result["error"]
+    return (503 if result["status"] == "failed" else 409), body
+
+
+def try_send_remote_auto(payload, threshold_id):
+    disabled = {"ok": False, "status": "disabled", "error": "automatic remote is disabled"}
+    uncertain = {"ok": False, "status": "uncertain", "error": "IR delivery is uncertain; automatic resend suppressed"}
+    if not automatic_remote_enabled():
+        return store_auto_result(threshold_id, disabled) or disabled
+
+    reserved = False
     try:
         power_status = record_power_status(source="pre_auto", use_cache=False)
         skip_tv_off = power_status.get("ready") and power_status.get("tv_on") is False
+        if not skip_tv_off:
+            send = prepare_remote_tv_off(automatic=True)
+        with auto_mode_lock:
+            if not automatic_remote_enabled():
+                return store_auto_result(threshold_id, disabled) or disabled
+            existing = store_auto_result(threshold_id, uncertain)
+            if existing is not None:
+                return existing
+            reserved = True
+            if not skip_tv_off:
+                result = send(1)
         if skip_tv_off:
             event_id = insert_event(
                 {
@@ -140,14 +175,15 @@ def try_send_remote_auto(payload):
                     ),
                 }
             )
-            return {
+            outcome = {
                 "ok": True,
                 "status": "skipped_already_off",
                 "event_id": event_id,
                 "power_meter": power_status,
             }
+            store_auto_result(threshold_id, outcome, replace=True)
+            return outcome
 
-        result = remote_send_tv_off(1)
         device_id = payload.get("device_id") or f"remote-{result['provider']}"
         event_id = insert_event(
             {
@@ -158,19 +194,22 @@ def try_send_remote_auto(payload):
                 "note": f"TV OFF sent by {result['provider']} x{result['repeat_count']}",
             }
         )
-        confirmation_scheduled = schedule_tv_off_confirmation(
-            payload,
-            device_id=device_id,
-            source="remote_auto",
-        )
-        return {
+        outcome = {
             "ok": True,
             "status": "sent",
             "event_id": event_id,
             "power_meter": power_status,
-            "power_confirmation_scheduled": confirmation_scheduled,
+            "power_confirmation_scheduled": False,
             **result,
         }
+        try:
+            outcome["power_confirmation_scheduled"] = schedule_tv_off_confirmation(
+                payload, device_id=device_id, source="remote_auto"
+            )
+        except Exception as exc:
+            print(f"TV OFF sent but power confirmation could not be scheduled: {exc}")
+        store_auto_result(threshold_id, outcome, replace=True)
+        return outcome
     except Exception as exc:
         attempt = as_int(payload.get("attempt")) or 0
         attempt_note = f" (attempt {attempt})" if attempt > 0 else ""
@@ -183,12 +222,15 @@ def try_send_remote_auto(payload):
                 "note": f"Automatic remote error{attempt_note}: {exc}",
             }
         )
-        return {
+        failure = {
             "ok": False,
-            "status": "failed",
+            "status": "uncertain" if reserved else "failed",
             "event_id": event_id,
             "error": str(exc),
         }
+        if reserved:
+            store_auto_result(threshold_id, failure, replace=True)
+        return failure
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -483,31 +525,11 @@ class Handler(BaseHTTPRequestHandler):
                 if payload.get("event_type") == "tv_power_off_attempt":
                     payload = {**payload, "event_type": "tv_off_threshold_reached"}
 
-                # Firmware retries carry attempt > 1: the threshold event was
-                # already stored on the first attempt, so do not duplicate it.
-                is_retry = (
-                    payload.get("event_type") == "tv_off_threshold_reached"
-                    and (as_int(payload.get("attempt")) or 0) > 1
-                )
-                event_id = None if is_retry else insert_event(payload)
                 if payload.get("event_type") == "tv_off_threshold_reached":
-                    remote_result = try_send_remote_auto(payload)
-                    if not remote_result["ok"]:
-                        status = 409 if remote_result["status"] == "disabled" else 503
-                        self.send_json(
-                            status,
-                            {
-                                "ok": False,
-                                "id": event_id,
-                                "remote": remote_result,
-                                "error": remote_result["error"],
-                            },
-                        )
-                        return
-
-                    self.send_json(201, {"ok": True, "id": event_id, "remote": remote_result})
+                    self.send_json(*handle_threshold(payload))
                     return
 
+                event_id = insert_event(payload)
                 self.send_json(201, {"ok": True, "id": event_id})
                 return
 
@@ -635,7 +657,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
             if parsed.path == "/api/settings":
-                settings = update_settings(payload)
+                with auto_mode_lock:
+                    settings = update_settings(payload)
                 self.send_json(200, {"ok": True, "settings": settings})
                 return
 
@@ -644,7 +667,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.send_json(400, {"error": "missing confirmation"})
                     return
 
-                result = clear_all_data()
+                with threshold_lock:
+                    result = clear_all_data()
                 self.send_json(200, {"ok": True, **result})
                 return
 

@@ -194,6 +194,16 @@ esp32_ir_auto_enabled=1 # ESP32 auto-sends direct IR on threshold
 The dashboard exposes these settings in the Settings tab. Manual TV OFF commands
 remain available even when automatic TV OFF is disabled.
 
+For BroadLink automation the server checks the saved mode again before
+transmission, even if the sensor is still using older settings. Each new
+threshold episode carries a `trigger_id`; retries from the same device use
+the same ID and receive the stored outcome. Older firmware is supported by
+grouping requests until the server observes the score drop to half the
+threshold or reset to zero. If telemetry is missing, older firmware can
+therefore miss a new episode. A connection failure before IR transmission
+returns HTTP 503 and can be retried. Monitor mode or an uncertain delivery
+returns HTTP 409 and stops automatic resends for that episode.
+
 Keep `esp32_ir_auto_enabled=0` when using a remote hub such as BroadLink. Enable
 it only if the ESP32 has a working IR transmitter that should act as the
 automatic TV OFF device.

@@ -1,5 +1,7 @@
+import json
 import os
 import sqlite3
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta
 
 from .config import DB_PATH, DEFAULT_SENSOR_DEVICE_ID
@@ -131,10 +133,16 @@ TV_OFF_ATTEMPT_EVENT_TYPES = (
 )
 
 
+@contextmanager
+def database_transaction():
+    with closing(sqlite3.connect(DB_PATH)) as conn, conn:
+        yield conn
+
+
 def ensure_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS readings (
@@ -227,6 +235,15 @@ def ensure_db():
             """
         )
 
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS auto_off_requests (
+                device_id TEXT NOT NULL,
+                request_key TEXT NOT NULL,
+                event_id INTEGER NOT NULL UNIQUE,
+                result TEXT,
+                PRIMARY KEY (device_id, request_key)
+            )
+        """)
         migrate_readings_table(conn)
         migrate_events_table(conn)
         migrate_commands_table(conn)
@@ -378,7 +395,7 @@ def insert_reading(payload):
     columns = ", ".join(values.keys())
     placeholders = ", ".join(["?"] * len(values))
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         cursor = conn.execute(
             f"INSERT INTO readings ({columns}) VALUES ({placeholders})",
             list(values.values()),
@@ -387,31 +404,113 @@ def insert_reading(payload):
 
 
 def insert_event(payload):
+    with database_transaction() as conn:
+        return _insert_event(conn, payload)
+
+
+def _insert_event(conn, payload):
     received_at = now_iso()
     ts = payload.get("ts") or received_at
     device_id = str(payload.get("device_id") or DEFAULT_SENSOR_DEVICE_ID)
     event_type = str(payload.get("event_type") or "unknown")
 
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.execute(
-            """
-            INSERT INTO events (
-                ts, received_at, device_id, event_type, sleep_score,
-                dist_filtered, note
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                ts,
-                received_at,
-                device_id,
-                event_type,
-                as_int(payload.get("sleep_score")),
-                as_int(payload.get("dist_filtered")),
-                payload.get("note"),
-            ),
+    cursor = conn.execute(
+        """
+        INSERT INTO events (
+            ts, received_at, device_id, event_type, sleep_score,
+            dist_filtered, note
         )
-        return cursor.lastrowid
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            ts, received_at, device_id, event_type,
+            as_int(payload.get("sleep_score")), as_int(payload.get("dist_filtered")),
+            payload.get("note"),
+        ),
+    )
+    return cursor.lastrowid
+
+
+def get_or_create_threshold_event(payload):
+    device = str(payload.get("device_id") or DEFAULT_SENSOR_DEVICE_ID)
+    trigger = payload.get("trigger_id")
+    if trigger is not None and (not isinstance(trigger, str) or not trigger.strip() or len(trigger) > 128):
+        raise ValueError("trigger_id must be a nonempty string of at most 128 characters")
+
+    with database_transaction() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if trigger is None:
+            # Older sensors retry without an ID. Their score must fall to half
+            # the threshold (or reset to zero) before a new episode can fire.
+            rearm_id, = conn.execute(
+                "SELECT MAX(id) FROM readings WHERE device_id = ? "
+                "AND (sleep_score = 0 OR sleep_score <= threshold / 2)", (device,)
+            ).fetchone()
+            key = f"legacy:{rearm_id or 0}"
+        else:
+            key = f"trigger:{trigger}"
+        row = conn.execute(
+            "SELECT event_id, result FROM auto_off_requests WHERE device_id = ? AND request_key = ?",
+            (device, key),
+        ).fetchone()
+        if row:
+            return row[0], json.loads(row[1]) if row[1] else None
+        if trigger is None:
+            prior = _legacy_threshold_before_upgrade(conn, device, rearm_id)
+            if prior:
+                event_id, result = prior
+                conn.execute(
+                    "INSERT INTO auto_off_requests VALUES (?, ?, ?, ?)",
+                    (device, key, event_id, json.dumps(result)),
+                )
+                return prior
+        event_id = _insert_event(conn, payload)
+        conn.execute(
+            "INSERT INTO auto_off_requests(device_id, request_key, event_id) VALUES (?, ?, ?)",
+            (device, key, event_id),
+        )
+        return event_id, None
+
+
+def _legacy_threshold_before_upgrade(conn, device, rearm_id):
+    # On the first post-upgrade request, adopt the old server's event if it
+    # already handled this episode. There was no durable dispatch marker then.
+    row = conn.execute(
+        """SELECT id FROM events WHERE device_id = ? AND event_type = 'tv_off_threshold_reached'
+           AND julianday(received_at) >= COALESCE(
+               (SELECT julianday(received_at) FROM readings WHERE id = ?), 0)
+           AND NOT EXISTS (SELECT 1 FROM auto_off_requests WHERE device_id = ?)
+           ORDER BY id DESC LIMIT 1""",
+        (device, rearm_id, device),
+    ).fetchone()
+    if not row:
+        return None
+    event_id = row[0]
+    outcome = conn.execute(
+        """SELECT id, event_type FROM events WHERE device_id = ? AND id > ?
+           AND event_type IN ('tv_off_remote_auto', 'tv_off_skipped_tv_already_off')
+           ORDER BY id DESC LIMIT 1""", (device, event_id),
+    ).fetchone()
+    if outcome:
+        status = "sent" if outcome[1] == "tv_off_remote_auto" else "skipped_already_off"
+        return event_id, {"ok": True, "status": status, "event_id": outcome[0]}
+    return event_id, {"ok": False, "status": "uncertain", "error": "Previous delivery was not confirmed"}
+
+
+def store_auto_result(event_id, result, *, replace=False):
+    # Commit a reservation before touching the transmitter. Even a process
+    # crash after transmission must not turn a retry into a second send.
+    with database_transaction() as conn:
+        sql = "UPDATE auto_off_requests SET result = ? WHERE event_id = ?"
+        if not replace:
+            sql += " AND result IS NULL"
+        changed = conn.execute(sql, (json.dumps(result), event_id)).rowcount
+        if changed:
+            return None
+        row = conn.execute("SELECT result FROM auto_off_requests WHERE event_id = ?", (event_id,)).fetchone()
+        if row is None:
+            raise RuntimeError("Threshold event no longer exists")
+        return json.loads(row[0])
 
 
 def insert_power_reading(status, source="api", note=None):
@@ -441,7 +540,7 @@ def insert_power_reading(status, source="api", note=None):
     columns = ", ".join(values.keys())
     placeholders = ", ".join(["?"] * len(values))
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         cursor = conn.execute(
             f"INSERT INTO power_readings ({columns}) VALUES ({placeholders})",
             list(values.values()),
@@ -450,7 +549,7 @@ def insert_power_reading(status, source="api", note=None):
 
 
 def get_device_ids():
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         cursor = conn.execute(
             """
             SELECT DISTINCT device_id FROM (
@@ -471,7 +570,7 @@ def get_device_ids():
 
 def get_readings(limit, device_id=None):
     device_id = normalize_device_id(device_id)
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         if device_id:
             cursor = conn.execute(
                 """
@@ -492,7 +591,7 @@ def get_readings(limit, device_id=None):
 
 def get_readings_for_export(device_id=None):
     device_id = normalize_device_id(device_id)
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         if device_id:
             cursor = conn.execute(
                 "SELECT * FROM readings WHERE device_id = ? ORDER BY id ASC",
@@ -505,7 +604,7 @@ def get_readings_for_export(device_id=None):
 
 def get_readings_between(start, end, device_id=None):
     device_id = normalize_device_id(device_id)
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         if device_id:
             cursor = conn.execute(
                 """
@@ -536,7 +635,7 @@ def get_readings_between(start, end, device_id=None):
 
 def get_latest(device_id=None):
     device_id = normalize_device_id(device_id)
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         if device_id:
             cursor = conn.execute(
                 "SELECT * FROM readings WHERE device_id = ? ORDER BY id DESC LIMIT 1",
@@ -550,7 +649,7 @@ def get_latest(device_id=None):
 
 def get_events(limit, device_id=None):
     device_id = normalize_device_id(device_id)
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         if device_id:
             cursor = conn.execute(
                 """
@@ -571,7 +670,7 @@ def get_events(limit, device_id=None):
 
 def get_events_for_export(device_id=None):
     device_id = normalize_device_id(device_id)
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         if device_id:
             cursor = conn.execute(
                 "SELECT * FROM events WHERE device_id IN (?, '*') ORDER BY id ASC",
@@ -583,7 +682,7 @@ def get_events_for_export(device_id=None):
 
 
 def get_settings():
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         ensure_default_settings(conn)
         cursor = conn.execute("SELECT key, value, updated_at FROM settings")
         rows = cursor.fetchall()
@@ -614,7 +713,7 @@ def update_settings(payload):
         minimum, maximum = SETTING_LIMITS[key]
         changed[key] = bounded_int(payload.get(key), default, minimum, maximum)
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         ensure_default_settings(conn)
 
         for key, value in changed.items():
@@ -639,7 +738,7 @@ def create_command(payload):
     repeat_count = bounded_int(payload.get("repeat_count"), 1, 1, 5)
     expires_at = command_expires_at(payload.get("ttl_seconds"))
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         cursor = conn.execute(
             """
             INSERT INTO commands (
@@ -687,7 +786,7 @@ def expire_old_commands(conn=None):
 
 def get_commands(limit, device_id=None):
     device_id = normalize_device_id(device_id)
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         expire_old_commands(conn)
         if device_id:
             cursor = conn.execute(
@@ -709,7 +808,7 @@ def get_commands(limit, device_id=None):
 
 def get_commands_for_export(device_id=None):
     device_id = normalize_device_id(device_id)
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         expire_old_commands(conn)
         if device_id:
             cursor = conn.execute(
@@ -722,7 +821,7 @@ def get_commands_for_export(device_id=None):
 
 
 def get_power_readings(limit=200):
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         cursor = conn.execute(
             "SELECT * FROM power_readings ORDER BY id DESC LIMIT ?",
             (limit,),
@@ -731,13 +830,13 @@ def get_power_readings(limit=200):
 
 
 def get_power_readings_for_export():
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         cursor = conn.execute("SELECT * FROM power_readings ORDER BY id ASC")
         return [row_to_dict(cursor, row) for row in cursor.fetchall()]
 
 
 def get_power_readings_between(start, end):
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         cursor = conn.execute(
             """
             SELECT * FROM power_readings
@@ -755,7 +854,7 @@ def get_power_readings_between(start, end):
 def claim_next_command(device_id):
     claimed_at = now_iso()
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         conn.execute("BEGIN IMMEDIATE")
         expire_old_commands(conn)
         cursor = conn.execute(
@@ -789,7 +888,7 @@ def claim_next_command(device_id):
 
 
 def get_command(command_id):
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         cursor = conn.execute(
             "SELECT * FROM commands WHERE id = ?",
             (command_id,),
@@ -802,7 +901,7 @@ def complete_command(command_id, status, note=None):
     completed_at = now_iso()
     status = status if status in ("done", "failed", "cancelled", "expired") else "done"
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         cursor = conn.execute(
             """
             UPDATE commands
@@ -819,7 +918,7 @@ def complete_command(command_id, status, note=None):
 
 
 def cancel_command(command_id):
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         cursor = conn.execute(
             """
             UPDATE commands
@@ -875,7 +974,7 @@ def get_events_by_types(event_types, start=None, end=None, device_id=None):
 
     query += " ORDER BY id DESC"
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         cursor = conn.execute(query, params)
         events = [row_to_dict(cursor, row) for row in cursor.fetchall()]
 
@@ -936,7 +1035,7 @@ def count_power_events(start=None, end=None, conn=None, device_id=None):
         row = cursor.fetchone()
         return row_to_dict(cursor, row)["tv_commands"] if row else 0
 
-    with sqlite3.connect(DB_PATH) as local_conn:
+    with database_transaction() as local_conn:
         cursor = local_conn.execute(query, params)
         if start and end:
             return sum(
@@ -951,7 +1050,7 @@ def count_power_events(start=None, end=None, conn=None, device_id=None):
 
 def get_summary(device_id=None):
     device_id = normalize_device_id(device_id)
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
         expire_old_commands(conn)
         if device_id:
             cursor = conn.execute(
@@ -1030,7 +1129,8 @@ def get_summary(device_id=None):
 
 
 def clear_all_data():
-    with sqlite3.connect(DB_PATH) as conn:
+    with database_transaction() as conn:
+        conn.execute("DELETE FROM auto_off_requests")
         reading_cursor = conn.execute("DELETE FROM readings")
         event_cursor = conn.execute("DELETE FROM events")
         command_cursor = conn.execute("DELETE FROM commands")

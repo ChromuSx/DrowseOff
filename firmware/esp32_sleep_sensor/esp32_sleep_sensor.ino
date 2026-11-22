@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoOTA.h>
+#include <esp_random.h>
 #include <string.h>
 
 #if __has_include("secrets.h")
@@ -98,6 +99,7 @@ unsigned long lastSettingsSync = 0;
 unsigned long lastWifiRetry = 0;
 unsigned long lastRemoteAutoAttempt = 0;
 int remoteAutoAttempts = 0;
+char remoteTriggerId[25] = "";
 bool rearmAllowed = false;
 unsigned long lastCommandCompleteAttempt = 0;
 bool otaConfigured = false;
@@ -593,8 +595,7 @@ void sendReadingToServer(
 }
 
 // Returns the HTTP status code, or -1 when the request could not be sent.
-// `attempt` > 0 tells the server which retry this is, so it can avoid
-// storing the same threshold event more than once.
+// Every retry of an automatic threshold carries the same trigger ID.
 int sendEventToServer(const char* eventType, int filteredDistance, const char* note, int attempt = 0) {
   String json = "{";
   json += "\"device_id\":\"" + escapeJson(String(DEVICE_ID)) + "\"";
@@ -604,6 +605,7 @@ int sendEventToServer(const char* eventType, int filteredDistance, const char* n
   json += ",\"note\":\"" + escapeJson(String(note)) + "\"";
   if (attempt > 0) {
     json += ",\"attempt\":" + String(attempt);
+    json += ",\"trigger_id\":\"" + String(remoteTriggerId) + "\"";
   }
   json += "}";
 
@@ -967,6 +969,10 @@ void loop() {
     scoreReason);
 
   if (remoteAutoRequestThisLoop) {
+    if (remoteAutoAttempts == 0) {
+      snprintf(remoteTriggerId, sizeof(remoteTriggerId), "%08lx%08lx%08lx",
+               (unsigned long)esp_random(), (unsigned long)esp_random(), (unsigned long)esp_random());
+    }
     remoteAutoAttempts++;
     int remoteStatus = sendEventToServer(
       "tv_off_threshold_reached",
@@ -979,11 +985,11 @@ void loop() {
       rearmAllowed = true;
       remoteAutoAttempts = 0;
     } else if (remoteStatus == 409) {
-      // The server has automatic remote sends disabled: retrying cannot help.
+      // Terminal outcome (Monitor mode or an unacknowledged IR transmission).
       tvAlreadyOff = true;
       rearmAllowed = true;
       remoteAutoAttempts = 0;
-      Serial.print(" | Remote auto disabled on server");
+      Serial.print(" | Server suppressed further automatic attempts");
     } else if (remoteAutoAttempts >= REMOTE_AUTO_MAX_ATTEMPTS) {
       // Stop retrying until the score re-arms or the person leaves the bed.
       tvAlreadyOff = true;

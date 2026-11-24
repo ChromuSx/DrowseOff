@@ -818,6 +818,9 @@ void loop() {
     strongMovement = distanceChange >= strongDistanceChangeCm;
   }
 
+  // The radar can report stationary and moving targets in the same sample.
+  bool quietForSleep = personInBed && stableDistance && still && !moving;
+
   if (!personInBed) {
     consecutiveOutOfBedReadings++;
 
@@ -844,12 +847,15 @@ void loop() {
     if (strongMovement) {
       sleepScore -= 8;
       scoreReason = "-8 strong movement";
-    } else if (stableDistance && still) {
+    } else if (moving) {
+      sleepScore -= 1;
+      scoreReason = "-1 radar movement";
+    } else if (quietForSleep) {
       sleepScore += 1;
       scoreReason = "+1 stable and still";
     } else if (stableDistance) {
-      sleepScore += 1;
-      scoreReason = "+1 stable distance";
+      sleepScore -= 1;
+      scoreReason = "-1 no stationary target";
     } else {
       sleepScore -= 1;
       scoreReason = "-1 unstable distance";
@@ -932,7 +938,7 @@ void loop() {
     Serial.print(" | DASHBOARD TV OFF");
   }
 
-  if (sleepScore >= sleepThreshold && !tvAlreadyOff && autoPowerEnabled) {
+  if (quietForSleep && sleepScore >= sleepThreshold && !tvAlreadyOff && autoPowerEnabled) {
     Serial.print(" | TV OFF");
     if (esp32IrAutoEnabled) {
       sendTvPower(1);
